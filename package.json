@@ -1,0 +1,41 @@
+{
+  "name": "vite-react-typescript-starter",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "npm run dev",
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "backend": "python3 -m uvicorn gemini:app --reload"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "lucide-react": "^0.344.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-markdown": "^9.0.1",
+    "uuid": "^9.0.1",
+    "supabase": "^2.15.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.12.0",
+    "@types/axios": "^0.9.36",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "@types/uuid": "^9.0.8",
+    "@vitejs/plugin-react": "^4.5.1",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^9.12.0",
+    "eslint-plugin-react-hooks": "^5.1.0-rc.0",
+    "eslint-plugin-react-refresh": "^0.4.12",
+    "globals": "^15.11.0",
+    "postcss": "^8.5.4",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.8.1",
+    "vite": "^6.3.5"
+  }
+}
