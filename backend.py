@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from fastapi import FastAPI, Body, Depends, Request, UploadFile, File, HTTPException
+from fastapi import FastAPI, Body, Depends, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sklearn.metrics.pairwise import cosine_similarity
@@ -18,17 +18,18 @@ from google import generativeai
 import google.generativeai as genai
 from google.generativeai import types
 import io
-from PyPDF2 import PdfReader
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
 from langchain_community.vectorstores import FAISS
 from langchain.embeddings.base import Embeddings
 from langchain.llms.base import LLM
+from typing import Optional, List
 import pickle
-from connection_app import store_embeddings, load_embeddings
+from embeddings import GeminiEmbeddings
+from connection_app import load_embeddings
  
-app = FastAPI(title="FlexAI", description="An AI-assistant for workspace booking and document Q&A")
+app = FastAPI(title="FlexAI", description="An AI-assistant for workspace booking")
 
 app.add_middleware(
 	CORSMiddleware,
@@ -44,18 +45,21 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES"))
 MIN_SIMILARITY_SCORE = float(os.getenv("MIN_SIMILARITY_SCORE"))
 SHEET_API_KEY = os.getenv("SHEET_API_KEY")
+file_id = os.getenv("file_id")
+EMBEDDING_NAME = "embeddings"
 
 genai.configure(api_key=GEMINI_API_KEY)
 
 INITIAL_PROMPT = (
-    "You are an expert assistant in helping user answer questions based on the document."
-    "Answer the questions based on the provided document. But do not specify in the response 'based on the document' just answer like a normal assistant."
+    "You are an expert FlexAI assistant in helping user answer questions based on the document."
+	"Stylework is India's largest flexible workspace provider, offering a robust solution for businesses of various sizes. With a presence in 100+ cities in India, we connect individuals, startups, and enterprises to a diverse network of ready-to-move-in coworking and managed office spaces."
+    "Answer the questions based on the provided document. But do not mention that the response is 'based on the document', just answer like a normal assistant."
     "Also have a friendly conversation with user. All questions will not be related to the document."
     "Be concise and accurate."
 )
 
 class GeminiLLM(LLM):
-    model: str = "models/gemini-1.5-flash"
+    model: str = "models/gemini-2.0-flash"
     initial_prompt: str = INITIAL_PROMPT
 
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
@@ -68,30 +72,26 @@ class GeminiLLM(LLM):
     def _llm_type(self) -> str:
         return "gemini-llm"
 
-class GeminiEmbeddings(Embeddings):
-    def __init__(self, model_name: str = "models/embedding-001", api_key: str = None):
-        self.model_name = model_name
-        self.api_key = GEMINI_API_KEY
-        genai.configure(api_key=self.api_key)
+def get_text_chunks(text: str) -> List[str]:
+    splitter = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
+    return splitter.split_text(text)
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        embeddings = []
-        for text in texts:
-            result = genai.embed_content(
-                model = self.model_name,
-                content = text,
-                task_type = "retrieval_document"
-            )
-            embeddings.append(result["embedding"])
-        return embeddings
 
-    def embed_query(self, texts: str) -> List[float]:
-        result = genai.embed_content(
-            model = self.model_name,
-            content = texts,
-            task_type = "retrieval_query"
-        )
-        return result["embedding"]
+def get_conversation_chain(vectorstore, initial_prompt=INITIAL_PROMPT):
+    llm = GeminiLLM(initial_prompt=initial_prompt)
+    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
+    return ConversationalRetrievalChain.from_llm(llm, vectorstore.as_retriever(), memory=memory)
+
+def handle_userinput(user_question, conversation, chat_history=None):
+	if not user_question or not conversation:
+		return "PDF not loaded yet."
+	# Pass chat_history if provided
+	inputs = {"question": user_question}
+	if chat_history is not None:
+		inputs["chat_history"] = chat_history
+	response = conversation.invoke(inputs)
+	bot_msg = response.get("answer", "")
+	return bot_msg
 
 class UserInput(BaseModel):
 	workspaceName: Optional[str] = ''
@@ -116,11 +116,7 @@ class ChatRequest(BaseModel):
 	chat_history: List[ChatMessage]
 	session_id: Optional[str] = None
 
-class DocumentUploadRequest(BaseModel):
-	session_id: str
-
 global_sessions = {}
-document_conversations = {}  # Store document conversation chains per session
 
 def get_session(session_id: str = None, user_id: str = None):
     if session_id:
@@ -131,53 +127,13 @@ def get_session(session_id: str = None, user_id: str = None):
             if session:
                 global_sessions[session_id] = session
             else:
+                # Return None if session not found
                 return None
     else:
+        # Don't create sessions here - only retrieve existing ones
         return None
+
     return session
-
-def get_text_chunks(text: str) -> List[str]:
-    splitter = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
-    return splitter.split_text(text)
-
-def get_pdf_text_from_bytes(pdf_bytes: bytes) -> str:
-    text = ""
-    reader = PdfReader(io.BytesIO(pdf_bytes))
-    for page in reader.pages:
-        page_text = page.extract_text()
-        if page_text:
-            text += page_text
-    return text
-
-def get_conversation_chain(vectorstore, initial_prompt=INITIAL_PROMPT):
-    llm = GeminiLLM(initial_prompt=initial_prompt)
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-    return ConversationalRetrievalChain.from_llm(llm, vectorstore.as_retriever(), memory=memory)
-
-def is_document_related_query(user_message: str, chat_history: list) -> bool:
-    """Determine if the query is related to uploaded documents"""
-    document_keywords = [
-        'document', 'pdf', 'file', 'uploaded', 'according to the document',
-        'what does the document say', 'in the document', 'from the document',
-        'based on the document', 'document mentions', 'document states',
-        'explain the document', 'summarize the document', 'document content'
-    ]
-    
-    user_message_lower = user_message.lower()
-    
-    # Check if message contains document-related keywords
-    if any(keyword in user_message_lower for keyword in document_keywords):
-        return True
-    
-    # Check if recent conversation was about documents
-    recent_messages = chat_history[-3:] if len(chat_history) > 3 else chat_history
-    for msg in recent_messages:
-        if msg.get('sender') == 'assistant':
-            msg_text = msg.get('text', '').lower()
-            if any(keyword in msg_text for keyword in document_keywords):
-                return True
-    
-    return False
 
 @app.get("/session/{session_id}")
 async def get_session_data(session_id: str):
@@ -216,63 +172,6 @@ async def create_session(data: SessionRequest):
 	print("[DEBUG] Created session:", session.session_id, "for user_id:", user_id)
 
 	return {"session_id": session.session_id, "user_id": user_id}
-
-@app.post("/upload_document")
-async def upload_document(file: UploadFile = File(...), session_id: str = Body(...)):
-    """Upload and process PDF document for Q&A"""
-    try:
-        if not file.filename.endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="Only PDF files are supported")
-        
-        # Read PDF content
-        pdf_bytes = await file.read()
-        raw_text = get_pdf_text_from_bytes(pdf_bytes)
-        
-        if not raw_text.strip():
-            raise HTTPException(status_code=400, detail="Could not extract text from PDF")
-        
-        # Process text into chunks
-        chunks = get_text_chunks(raw_text)
-        
-        # Create embeddings and vector store
-        embeddings = GeminiEmbeddings()
-        vectorstore = FAISS.from_texts(chunks, embedding=embeddings)
-        
-        # Store embeddings in MongoDB
-        embedding_name = f"doc_{session_id}"
-        faiss_bytes = pickle.dumps(vectorstore)
-        store_embeddings(embedding_name, faiss_bytes)
-        
-        # Create conversation chain and store it
-        conversation_chain = get_conversation_chain(vectorstore)
-        document_conversations[session_id] = conversation_chain
-        
-        return {
-            "message": f"Document '{file.filename}' uploaded and processed successfully",
-            "filename": file.filename,
-            "chunks_created": len(chunks)
-        }
-        
-    except Exception as e:
-        print(f"Error uploading document: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing document: {str(e)}")
-
-@app.post("/load_document")
-async def load_document(session_id: str = Body(..., embed=True)):
-    """Load previously uploaded document for the session"""
-    try:
-        embedding_name = f"doc_{session_id}"
-        faiss_bytes = load_embeddings(embedding_name)
-        vectorstore = pickle.loads(faiss_bytes)
-        
-        conversation_chain = get_conversation_chain(vectorstore)
-        document_conversations[session_id] = conversation_chain
-        
-        return {"message": "Document loaded successfully from database"}
-        
-    except Exception as e:
-        print(f"Error loading document: {str(e)}")
-        return {"error": f"No document found for this session: {str(e)}"}
 
 def fetch_sheet_as_df(sheet_id, sheet_name, api_key):
     url = (
@@ -353,6 +252,118 @@ for city in df['CITY'].unique():
 	if city_lower == "warangal (urban)":
 		city_alias_map["warangal"] = city
 
+GEMINI_ROUTER_PROMPT = """
+	You are a router assistant. Given a user message, decide if it is about:
+	- "pdf" → if the question refers to anything about the company or functionalities (eg what is fixed memebership, what is flex ai, what are the functionalities of ai etc.).
+	- "workspace" → if it refers to workspace booking, location, budget, seats, coworking, offices, pricing etc.
+	- "general" → if it's a general conversation or unrelated (greeting, jokes, questions about you, etc.)
+
+	Only return one of the following exact outputs: "pdf", "workspace", or "general".
+	Do not explain.
+
+	User message: "{message}"
+"""
+
+def classify_intent_with_gemini(user_message: str) -> str:
+    try:
+        router_model = genai.GenerativeModel("gemini-1.5-flash")
+        prompt = GEMINI_ROUTER_PROMPT.format(message=user_message.strip())
+        response = router_model.generate_content(prompt)
+        intent = response.text.strip().lower()
+        if intent in ["pdf", "workspace", "general"]:
+            return intent
+        else:
+            return "general"
+    except Exception as e:
+        print("Router error:", e)
+        return "general"
+
+@app.post("/multimodal_agent")
+def multimodal_agent_router(
+    user_message: str = Body(..., embed=True),
+    chat_history: list = Body([], embed=True),
+    session_id: Optional[str] = Body(None, embed=True),
+    user_id: Optional[str] = Body(None, embed=True)
+):
+    intent = classify_intent_with_gemini(user_message)
+    print(intent)
+    if intent == "pdf":
+        return pdf_chat(user_message=user_message, chat_history=chat_history)
+    elif intent == "workspace":
+        return gemini_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
+    else:
+        return general_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
+
+@app.post("/pdf_chat")
+def pdf_chat(
+	user_message: str = Body(..., embed=True),
+	chat_history: list = Body([], embed=True)
+):
+	if not user_message:
+		return {"reply": "Please provide a question."}
+	faiss_bytes = load_embeddings(EMBEDDING_NAME)
+	vectorstore = pickle.loads(faiss_bytes)
+	conversation = get_conversation_chain(vectorstore)
+	# Use the existing conversation chain for document QA
+	# response = handle_userinput(user_message, conversation)
+	response = handle_userinput(user_message, conversation, chat_history=chat_history)
+	if not response or len(response.strip()) < 3:
+		response = "Sorry, I couldn't find an answer in the document."
+	return {"reply": response}
+
+GENERAL_PROMPT = """
+	You are FlexAI, a friendly assistant for Styleworks. Greet users, answer general questions, and guide them towards workspace booking or learning about Styleworks and Flexboard features.
+	Stylework is India's largest flexible workspace provider, offering a robust solution for businesses of various sizes. With a presence in 100+ cities in India, we connect individuals, startups, and enterprises to a diverse network of ready-to-move-in coworking and managed office spaces.
+	If the user asks about booking, features, or the platform, offer to help or provide information.
+	Do not answer workspace-specific queries here; only handle general conversation.
+
+	User message: {message}
+	"""
+
+@app.post("/general_chat")
+def general_chat(
+	user_message: str = Body(..., embed=True),
+	chat_history: list = Body([], embed=True),
+	session_id: Optional[str] = Body(None, embed=True),
+	user_id: Optional[str] = Body(None, embed=True)
+):
+	if len(chat_history) > MAX_HISTORY_MESSAGES:
+		chat_history = chat_history[-MAX_HISTORY_MESSAGES:]
+
+	session = get_session(session_id=session_id, user_id=user_id)
+	if session is None and session_id:
+		return {"error": f"Session {session_id} not found. Please create a new session."}
+
+	model = genai.GenerativeModel("gemini-1.5-flash")
+	prompt = GENERAL_PROMPT.format(message=user_message.strip())
+
+	chat_sdk_history = []
+	for msg in chat_history:
+		sender = msg.get("sender")
+		role = "user" if sender == "user" else "model"
+		text = msg.get("text", "").strip()
+		if text:
+			chat_sdk_history.append({"role": role, "parts": [text]})
+
+	gemini_chat_session = model.start_chat(history=chat_sdk_history)
+	gemini_response = gemini_chat_session.send_message(prompt)
+	reply_text = gemini_response.text.strip()
+
+	if session:
+		session.add_user_message({
+			"type": "user",
+			"content": user_message
+		})
+		session.add_assistant_message(reply_text, {}, None)
+
+		last_msg = session.get_messages()[-1] if session.get_messages() else None
+		timestamp = last_msg.get("timestamp") if last_msg else None
+	else:
+		timestamp = None
+
+	return {"reply": reply_text, "timestamp": timestamp}
+
+
 @app.post("/gemini_chat")
 def gemini_chat(
 	user_message: str = Body(..., embed=True),
@@ -380,28 +391,6 @@ def gemini_chat(
 		"content": user_message 
 	})
 
-	# Check if this is a document-related query
-	if is_document_related_query(user_message, chat_history):
-		# Handle document Q&A
-		if session_id in document_conversations:
-			try:
-				conversation_chain = document_conversations[session_id]
-				response = conversation_chain.invoke({"question": user_message})
-				bot_response = response["answer"]
-				
-				session.add_assistant_message(bot_response, {}, None)
-				last_msg = session.get_messages()[-1] if session.get_messages() else None
-				timestamp = last_msg.get("timestamp") if last_msg else None
-				
-				return {"reply": bot_response, "timestamp": timestamp, "source": "document"}
-				
-			except Exception as e:
-				print(f"Error in document Q&A: {str(e)}")
-				return {"reply": "Sorry, I encountered an error while processing your document question. Please try again.", "timestamp": datetime.now().isoformat()}
-		else:
-			return {"reply": "No document has been uploaded for this session. Please upload a document first to ask questions about it.", "timestamp": datetime.now().isoformat()}
-
-	# Handle workspace recommendations (existing logic)
 	system_prompt = (
 		"You are FlexiAI, a helpful assistant for a workspace booking platform called Styleworks. Your main job is to assist users in searching for and booking workspaces.\n"
 		"Stylework is India's largest flexible workspace provider, offering a robust solution for businesses of various sizes. With a presence in 100+ cities in India, we connect individuals, startups, and enterprises to a diverse network of ready-to-move-in coworking and managed office spaces."
@@ -420,7 +409,7 @@ def gemini_chat(
 		"	- If the workspace type is not specified in the start but is mentioned later, update the search parameters accordingly but if it is specified in the start and not explicitly told to change later then keep it same.\n"
 		"	- If the user specifies a workspace type in the start, use that type for the search but if they mention it later then update the search parameters(workspaceType) accordingly.\n\n"
 		"5. For **every workspace-related user message**, you MUST extract and return the full JSON object, even if only one field changes (e.g., just budget).\n"
-		"6. DO NOT skip JSON during workspace-related user message just because it was already provided earlier. Always repeat the full updated JSON when any user parameter changes.\n"
+		"6. DO NOT skip JSON during workspace-related user message just because it was already provided earlier. Always repeat the full updated JSON when any user parameter changes. ONLY for workspace requests\n"
 		"7. You are a helpful assistant and reply to users in a friendly manner when the user doesnt ask workspace related queries. While having friendly conversation do not include JSON in your reply as it is not a workspace query.\n"
 		"8. You DO NOT have to filter any workspace yourself, the engine has the capability to do so."
 		"9. When user asks the price of a workspace based on the offering - the recommendation engine has the capability to do so. DO NOT think on your own."
@@ -443,6 +432,7 @@ def gemini_chat(
 		"	- Not all user messages will be about workspaces. If the user asks about something else, just have a friendly conversation with the knowledge provided to you. And do include JSON in your reply for this.\n\n"
 		"	- The recommendation engine will add the actual workspace suggestions after your response.\n"
 		"IMPORTANT: Maintain continuity with previous messages. If the user refers to something mentioned earlier, use that context in your response.\n\n"
+		#f"IMPORTANT:  If user asks for filtering/sorting options (user_wants_filters={user_wants_filters}), mention that filtering options are available in your response and display the recommendations with the filtering options\n\n"
 		f"User message: {user_message}\n"
 		f"Chat history: {chat_history}\n"
 		"-- JSON Enforcement Rule --"
@@ -461,9 +451,8 @@ def gemini_chat(
 		"rating": 0,
 		"offeringType": "day pass"
 		}"""
-		"Always update the full structure. NEVER skip this JSON."
+		"Always update the full structure. NEVER skip this JSON - for workspace request ONLY."
 	)
-
 	filtered_history = [msg for msg in chat_history if msg.get("sender") == "user"]
 
 	try:
@@ -491,8 +480,6 @@ def gemini_chat(
 
 		response_metadata = {}
 		tool_calls = None
-
-		print(f"[Gemini SDK] Response:\n{raw_reply}")
 
 		if not raw_reply or len(raw_reply.strip()) < 15:
 			reply_text = "I understand your workspace requirements. Let me find the best options for you."
@@ -765,7 +752,7 @@ def gemini_chat(
 						"similarity_score": row.get('similarity_score', 0)
 					}
 					result.append(rec)
-
+			
 			sort_by_price = False
 			sort_price_pattern = re.compile(
 				r'\b(?:sort|order|arrange|filter)\s+(?:the\s+)?(?:.*?)(?:price|cost|rate|charges)\b',
@@ -858,4 +845,4 @@ def gemini_chat(
 	last_msg = session.get_messages()[-1] if session.get_messages() else None
 	timestamp = last_msg.get("timestamp") if last_msg else None
 
-	return {"reply": final_reply, "timestamp": timestamp, "source": "workspace"}
+	return {"reply": final_reply, "timestamp": timestamp}
