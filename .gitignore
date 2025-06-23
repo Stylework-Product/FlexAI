@@ -24,3 +24,5 @@ dist-ssr
 *.sw?
 .env
 .venv3
+
+services_account.json

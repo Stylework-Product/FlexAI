@@ -80,7 +80,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
       const botResponse: ChatMessage = {
         type: 'assistant',
-        content: data.reply || "Sorry, I couldn't process your request. You can contact the operation team regarding this query at operations@stylework.city",
+        content: data.reply || "You can contact the operation team regarding this query at operations@stylework.city",
         timestamp: data.timestamp ? new Date(data.timestamp) : new Date(),
       };
 

@@ -46,15 +46,20 @@ MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES"))
 MIN_SIMILARITY_SCORE = float(os.getenv("MIN_SIMILARITY_SCORE"))
 SHEET_API_KEY = os.getenv("SHEET_API_KEY")
 file_id = os.getenv("file_id")
+SHEET_ID = os.getenv("SHEET_ID")  
+SHEET_NAME = os.getenv("SHEET_NAME")  
 EMBEDDING_NAME = "embeddings"
+NO_OF_SPACES = os.getenv("NO_OF_SPACES")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
+# Gemini set up for pdf document answering
 INITIAL_PROMPT = (
     "You are an expert FlexAI assistant in helping user answer questions based on the document."
     "Stylework is India's largest flexible workspace provider, offering a robust solution for businesses of various sizes. With a presence in 100+ cities in India, we connect individuals, startups, and enterprises to a diverse network of ready-to-move-in coworking and managed office spaces."
     "Answer the questions based on the provided document. But do not mention that the response is 'based on the document', just answer like a normal assistant."
     "Also have a friendly conversation with user. All questions will not be related to the document."
+    "If the user query asked is not available within your domain knowledge then response should be - You can contact the operation team regarding this query at operations@stylework.city!"
     "Be concise and accurate."
 )
 
@@ -72,27 +77,29 @@ class GeminiLLM(LLM):
     def _llm_type(self) -> str:
         return "gemini-llm"
 
+# splits the document into chunks
 def get_text_chunks(text: str) -> List[str]:
     splitter = CharacterTextSplitter(separator="\n", chunk_size=1000, chunk_overlap=200)
     return splitter.split_text(text)
 
-
+# initializes a llm gemini model and creates a memory for it
 def get_conversation_chain(vectorstore, initial_prompt=INITIAL_PROMPT):
     llm = GeminiLLM(initial_prompt=initial_prompt)
     memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
     return ConversationalRetrievalChain.from_llm(llm, vectorstore.as_retriever(), memory=memory)
 
-def handle_userinput(user_question, conversation, chat_history=None):
+# recives the user query and produces a response
+def handle_userinput(user_question, conversation, chat_history):
     if not user_question or not conversation:
         return "PDF not loaded yet."
-    # Pass chat_history if provided
-    inputs = {"question": user_question}
-    if chat_history is not None:
-        inputs["chat_history"] = chat_history
-    response = conversation.invoke(inputs)
+    response = conversation.invoke({
+        "question": user_question,
+        "chat_history": [(msg["type"], msg["content"]) for msg in chat_history]
+    })
     bot_msg = response.get("answer", "")
     return bot_msg
 
+# format for user input
 class UserInput(BaseModel):
     workspaceName: Optional[str] = ''
     city: str
@@ -105,6 +112,7 @@ class UserInput(BaseModel):
     rating: Optional[int] = 0
     offeringType: Optional[str] = ''
 
+# format for chat message
 class ChatMessage(BaseModel):
     id: str
     text: str
@@ -118,6 +126,7 @@ class ChatRequest(BaseModel):
 
 global_sessions = {}
 
+# retrieve session id
 def get_session(session_id: str = None, user_id: str = None):
     if session_id:
         if session_id in global_sessions:
@@ -173,6 +182,7 @@ async def create_session(data: SessionRequest):
 
     return {"session_id": session.session_id, "user_id": user_id}
 
+# fetch the dataset from google sheet
 def fetch_sheet_as_df(sheet_id, sheet_name, api_key):
     url = (
         f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{sheet_name}?key={api_key}"
@@ -186,14 +196,13 @@ def fetch_sheet_as_df(sheet_id, sheet_name, api_key):
     df = pd.DataFrame(values[1:], columns=values[0])
     return df
 
-SHEET_ID = os.getenv("SHEET_ID")  
-SHEET_NAME = os.getenv("SHEET_NAME")  
 
 if SHEET_API_KEY and SHEET_ID and SHEET_NAME:
     df = fetch_sheet_as_df(SHEET_ID, SHEET_NAME, SHEET_API_KEY)
 else:
     print("Incorrect credentials - SHEET_API_KEY, SHEET_ID and SHEET_NAME")
 
+# data processing of dataset
 numeric_columns = [
     'DAY PASS',
     'FLEXI DESK _MONTHLY',
@@ -252,6 +261,7 @@ for city in df['CITY'].unique():
     if city_lower == "warangal (urban)":
         city_alias_map["warangal"] = city
 
+# setup for router gemini - which routes the user query to 3 different gemini models
 GEMINI_ROUTER_PROMPT = """
     You are a router assistant. Given a user message, decide if it is about:
     - "pdf" → if the question refers to anything about the company or functionalities (eg what is fixed memebership, what is flex ai, what are the functionalities of ai etc.).
@@ -288,7 +298,7 @@ def multimodal_agent_router(
     intent = classify_intent_with_gemini(user_message)
     print(intent)
     if intent == "pdf":
-        return pdf_chat(user_message=user_message, chat_history=chat_history)
+        return pdf_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
     elif intent == "workspace":
         return gemini_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
     else:
@@ -315,68 +325,33 @@ def pdf_chat(
         if text:
             chat_sdk_history.append({"role": role, "parts": [text]})
 
-    reply_text = handle_userinput(user_message, conversation, chat_history=chat_history)
-
-    if not reply_text or len(reply_text.strip()) < 3:
-        reply_text = "Sorry, I couldn't process your request. You can contact the operation team regarding this query at operations@stylework.city!"
-
     session = get_session(session_id=session_id, user_id=user_id)
     if session is None and isinstance(user_id, str) and user_id:
-        new_session = create_new_session(user_id=user_id)
-        global_sessions[new_session.session_id] = new_session
-        session = new_session
+        session = create_new_session(user_id=user_id)
+        global_sessions[session.session_id] = session
         session_id = session.session_id
-    timestamp = None
+    
     if session:
         session.add_user_message({
             "type": "user",
             "content": user_message
         })
-        print(f"[DEBUG] User message added and saved to DB for session_id: {session_id}")
+    
+    session_messages = session.get_messages() if session else chat_history
+    reply_text = handle_userinput(user_message, conversation, chat_history=session_messages)
+
+    if session:
         session.add_assistant_message(reply_text, {}, None)
-        print(f"[DEBUG] Assistant message added and saved to DB for session_id: {session_id}")
         last_msg = session.get_messages()[-1] if session.get_messages() else None
         timestamp = last_msg.get("timestamp") if last_msg else None
-    else:
+    else:  
         timestamp = None
+    if not reply_text or len(reply_text.strip()) < 3:
+        reply_text = "You can contact the operation team regarding this query at operations@stylework.city!"
     
-    return {"reply": reply_text, "session_id": session_id, "user_id": user_id, "timestamp": timestamp}
-"""
-def pdf_chat(
-    user_message: str = Body(..., embed=True),
-    chat_history: list = Body([], embed=True),
-    session_id: Optional[str] = Body(None, embed=True),
-    user_id: Optional[str] = Body(None, embed=True)
-):
-    if not user_message:
-        return {"reply": "Please provide a question."}
-    faiss_bytes = load_embeddings(EMBEDDING_NAME)
-    vectorstore = pickle.loads(faiss_bytes)
-    conversation = get_conversation_chain(vectorstore)
-    
-    response = handle_userinput(user_message, conversation, chat_history=chat_history)
-    if not response or len(response.strip()) < 3:
-        response = "Sorry, I couldn't process your request. You can contact the operation team regarding this query at operations@stylework.city!"
+    return {"reply": reply_text, "session_id": session_id, "user_id": user_id, "timestamp": timestamp, "chat_history": session.get_messages() if session else []}
 
-    session = get_session(session_id=session_id, user_id=user_id)
-    if session is None and isinstance(user_id, str) and user_id:
-        new_session = create_new_session(user_id=user_id)
-        global_sessions[new_session.session_id] = new_session
-        session = new_session
-        session_id = session.session_id
-    timestamp = None
-    if session:
-        session.add_user_message({
-            "type": "user",
-            "content": user_message
-        })
-        session.add_assistant_message(response, {}, None)
-        last_msg = session.get_messages()[-1] if session.get_messages() else None
-        timestamp = last_msg.get("timestamp") if last_msg else None
-        
-    return {"reply": response, "session_id": session_id, "user_id": user_id, "timestamp": timestamp}
-"""
-
+# setup for the general gemini model
 GENERAL_PROMPT = """
     You are FlexAI, a friendly assistant for Styleworks. Greet users, answer general questions, and guide them towards workspace booking or learning about Styleworks and Flexboard features.
     Stylework is India's largest flexible workspace provider, offering a robust solution for businesses of various sizes. With a presence in 100+ cities in India, we connect individuals, startups, and enterprises to a diverse network of ready-to-move-in coworking and managed office spaces.
@@ -429,7 +404,7 @@ def general_chat(
 
     return {"reply": reply_text, "timestamp": timestamp}
 
-
+# setup for the recommendation gemini model
 @app.post("/gemini_chat")
 def gemini_chat(
     user_message: str = Body(..., embed=True),
@@ -479,12 +454,12 @@ def gemini_chat(
         "7. You are a helpful assistant and reply to users in a friendly manner when the user doesnt ask workspace related queries. While having friendly conversation do not include JSON in your reply as it is not a workspace query.\n"
         "8. You DO NOT have to filter any workspace yourself, the engine has the capability to do so."
         "9. When user asks the price of a workspace based on the offering - the recommendation engine has the capability to do so. DO NOT think on your own."
-        "When a user asks about workspaces:\n"
+        "10.When a user asks about workspaces:\n"
         "	- Acknowledge their request professionally\n"
         "	- If information is missing, set to null or empty values (0 for integer columns and [] for list columns)\n"
         "	- DO NOT include any specific workspace details or recommendations\n"
         "	- Extract the input parameters from the user message and format them as JSON.\n\n"
-        "Understand important keywords:\n"
+        "11.Understand important keywords:\n"
         "	- 'day pass' means a single day access\n"
         "	- 'flexi desk' means a flexible desk for a month\n"
         "	- 'dedicated desk' means a personal desk for a month\n"
@@ -492,13 +467,14 @@ def gemini_chat(
         "	- 'bundle' refers to the pricing category (standard, silver, gold, platinum, platinum+)\n"
         "	- 'budget' refers to the maximum price they are willing to pay\n"
         "	- 'offerings' refers to the type of desk types (day pass, flexi desk, dedicated desk, private cabin) provided by the workspace\n\n"
-        "If user mentions any words like 'office', 'coworking space', 'shared office', 'workspace', 'desk', 'cabin', 'private office', etc., consider it as a workspace search request unless they ask about the services provided - understand if the request is a question or a statement and then decide accordingly.\n\n"
-        "If the user asks about workspaces, extract their requirements and respond with a friendly message acknowledging their request.\n"
+        "12.If user mentions any words like 'office', 'coworking space', 'shared office', 'workspace', 'desk', 'cabin', 'private office', etc., consider it as a workspace search request unless they ask about the services provided - understand if the request is a question or a statement and then decide accordingly.\n\n"
+        "13.If the user asks about workspaces, extract their requirements and respond with a friendly message acknowledging their request.\n"
+        "14.If the user wants to BOOK a workspace - ask the user for details (such as name, email, number of seats required, joining date of space etc or any other appropriate details needed)"
         "REMEMBER: "
         "	- Not all user messages will be about workspaces. If the user asks about something else, just have a friendly conversation with the knowledge provided to you. And do include JSON in your reply for this.\n\n"
         "	- The recommendation engine will add the actual workspace suggestions after your response.\n"
+        "IMPORTANT: Any user query which is not in the 13 points functionality of the chatbot display the bot message - You can contact the operation team regarding this query at operations@stylework.city!"
         "IMPORTANT: Maintain continuity with previous messages. If the user refers to something mentioned earlier, use that context in your response.\n\n"
-        #f"IMPORTANT:  If user asks for filtering/sorting options (user_wants_filters={user_wants_filters}), mention that filtering options are available in your response and display the recommendations with the filtering options\n\n"
         f"User message: {user_message}\n"
         f"Chat history: {chat_history}\n"
         "-- JSON Enforcement Rule --"
@@ -517,7 +493,7 @@ def gemini_chat(
         "rating": 0,
         "offeringType": "day pass"
         }"""
-        "Always update the full structure. NEVER skip this JSON - for workspace request ONLY."
+        "Always update the full structure in workspace request. NEVER skip this JSON - for workspace request ONLY."
     )
     filtered_history = [msg for msg in chat_history if msg.get("sender") == "user"]
 
@@ -569,6 +545,7 @@ def gemini_chat(
         'workspace name'
     ]
     
+    # remove recommendation (if any) from the gemini response
     for line in lines:
         line_lower = line.lower().strip()
         if any(keyword in line_lower for keyword in workspace_keywords):
@@ -586,6 +563,7 @@ def gemini_chat(
     if len(reply_text.strip()) < 15:
         reply_text = "I understand your workspace requirements. Let me find the best options for you."
 
+    # extract the json structure from the gemini response
     json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', raw_reply)
     extracted = None
     
@@ -601,6 +579,7 @@ def gemini_chat(
 
     final_reply = reply_text
 
+    # if user wants to know price of a particular workspace (eg what is day pass rate of Purple Coworking)
     price_keywords = ["price", "cost", "rate", "charges"]
     offering_types = {
         "day pass": "DAY PASS",
@@ -625,7 +604,8 @@ def gemini_chat(
             if key == found_offering:
                 final_reply += f"\n\nI found the workspace '{workspace_name.title()}' with the offering type '{found_offering.title()}' has a price of ₹{res_row[offering_types[found_offering]].values[0]}."
                 break
-
+    
+    # the main recommendation engine setup - starts by extracting input from the user query
     if extracted and (extracted.get("city") or extracted.get("workspaceType") or extracted.get("area")):
         try:
             name = str(extracted.get("workspaceName") or "").strip().lower()
@@ -672,6 +652,7 @@ def gemini_chat(
             else:
                 user_amenities = []
 
+            # perform basic filtering based on the inputs
             df_filtered = df.copy()
 
             if name and 'Unboxed Coworking' in df_filtered.columns:
@@ -771,7 +752,7 @@ def gemini_chat(
                 ws_type_sim = df_filtered['Offering'].apply(lambda x: 1.0 if workspace_type in str(x).lower() else 0.0).values
                 similarities_list.append(ws_type_sim)
                 weights.append(1.0)
-            # --- Combine similarities ---
+            # --- Combine similarities with weights ---
             if similarities_list:
                 similarities_arr = np.array(similarities_list)
                 weighted_sim = np.average(similarities_arr, axis=0, weights=weights)
@@ -779,15 +760,16 @@ def gemini_chat(
                 df_filtered['similarity_score'] = (weighted_sim * 100).round(2)
                 high_similarity = df_filtered[df_filtered['similarity_score'] >= MIN_SIMILARITY_SCORE]
                 if not high_similarity.empty:
-                    top_recommendations = high_similarity.sort_values(['similarity_score', 'avg_rating'], ascending=[False, False]).head(25)
+                    top_recommendations = high_similarity.sort_values(['similarity_score', 'avg_rating'], ascending=[False, False]).head(int(NO_OF_SPACES))
                 else:
-                    top_recommendations = df_filtered.sort_values('avg_rating', ascending=False).head(25)
+                    top_recommendations = df_filtered.sort_values('avg_rating', ascending=False).head(int(NO_OF_SPACES))
             else:
-                top_recommendations = df_filtered.sort_values('avg_rating', ascending=False).head(25)
+                top_recommendations = df_filtered.sort_values('avg_rating', ascending=False).head(int(NO_OF_SPACES))
 
             seen_workspaces = set()
             result = []
             
+            # storing the recommendations in a variable
             for _, row in top_recommendations.iterrows():
                 workspace_name =  str(row.get('Unboxed Coworking', '')).strip()
                 workspace_address = str(row.get('ADDRESS', '')).strip()
@@ -819,6 +801,7 @@ def gemini_chat(
                     }
                     result.append(rec)
             
+            # sort by price functionality
             sort_by_price = False
             sort_price_pattern = re.compile(
                 r'\b(?:sort|order|arrange|filter)\s+(?:the\s+)?(?:.*?)(?:price|cost|rate|charges)\b',
@@ -835,6 +818,7 @@ def gemini_chat(
                         return float('inf')
                 result = sorted(result, key=get_price)
 
+            # sort by rating functionality 
             sort_by_rating = False
             sort_rating_pattern = re.compile(
                 r'\b(?:sort|order|arrange|filter)\s+(?:the\s+)?(?:.*?)(?:rating)\b',
@@ -851,6 +835,7 @@ def gemini_chat(
                         return float('inf')
                 result = sorted(result, key=get_rating, reverse=True)
             
+            # recomendations stored and sent to frontend
             if result:
                 recommendations_text = "\n\nHere are some workspace recommendations for you:\n"
                 for idx, rec in enumerate(result, 1):
