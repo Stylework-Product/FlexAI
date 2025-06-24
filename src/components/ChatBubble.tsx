@@ -209,7 +209,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
     // Regular paragraphs
     p: ({ children }: any) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
     
-    // Unordered lists with custom bullets
+    // Unordered lists with circular bullets
     ul: ({ children }: any) => <ul className="mb-3 space-y-1">{children}</ul>,
     
     // List items with custom bullet points
@@ -227,8 +227,8 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
       );
     },
     
-    // Ordered lists
-    ol: ({ children }: any) => <ol className="list-decimal list-inside mb-3 space-y-1 ml-4">{children}</ol>,
+    // Ordered lists with numbers
+    ol: ({ children }: any) => <ol className="mb-3 space-y-1">{children}</ol>,
     
     // Bold text
     strong: ({ children }: any) => <strong className="font-semibold text-gray-900">{children}</strong>,
