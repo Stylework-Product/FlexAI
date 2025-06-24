@@ -15,7 +15,7 @@ from connection_app import store_embeddings, load_embeddings  # Your Mongo store
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-#file_id = os.getenv("file_id")
+file_id = os.getenv("file_id")
 EMBEDDING_NAME = "embeddings"  # Key name used in MongoDB
 folder_id = os.getenv("folder_id")
 GOOGLE_DRIVE_API = os.getenv("GOOGLE_DRIVE_API")
@@ -55,6 +55,7 @@ def split_text_to_chunks(text: str, chunk_size=1000, chunk_overlap=200) -> List[
     splitter = CharacterTextSplitter(separator="\n", chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     return splitter.split_text(text)
 
+"""
 def build_and_store_embeddings_for_folder(folder_id: str, embedding_name_prefix: str = EMBEDDING_NAME):
     files = list_files_in_folder(folder_id)
     print(f"Found {len(files)} files in folder.")
@@ -87,10 +88,10 @@ def load_all_vectorstores_from_db(folder_id: str, embedding_name_prefix: str = E
         except Exception as e:
             print(f"❌ Failed to load embeddings for {file_name}: {e}")
     return vectorstores
-
-build_and_store_embeddings_for_folder(folder_id, EMBEDDING_NAME)
-
 """
+#build_and_store_embeddings_for_folder(folder_id, EMBEDDING_NAME)
+#load_all_vectorstores_from_db(folder_id,EMBEDDING_NAME)
+
 def build_and_store_embeddings(file_id: str, embedding_name: str = EMBEDDING_NAME):
     print("Fetching PDF...")
     pdf_bytes = fetch_pdf_bytes_from_gdrive(file_id)
@@ -123,4 +124,3 @@ def load_vectorstore_from_db(embedding_name: str = EMBEDDING_NAME) -> FAISS:
 
 #build_and_store_embeddings(file_id, EMBEDDING_NAME)
 load_vectorstore_from_db(EMBEDDING_NAME)
-"""

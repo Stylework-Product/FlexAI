@@ -28,6 +28,7 @@ from typing import Optional, List
 import pickle
 from embeddings import GeminiEmbeddings
 from connection_app import load_embeddings
+from embedding_manager import list_files_in_folder, EMBEDDING_NAME, folder_id
  
 app = FastAPI(title="FlexAI", description="An AI-assistant for workspace booking")
 
@@ -60,13 +61,14 @@ INITIAL_PROMPT = (
     "Answer the questions based on the provided document. But do not mention that the response is 'based on the document', just answer like a normal assistant."
     "Also have a friendly conversation with user. All questions will not be related to the document."
     "If the user query asked is not available within your domain knowledge then response should be - You can contact the operation team regarding this query at operations@stylework.city!"
+    "REQUIRED: Make sure the responses are displayed in a neat format - like the subheadings should be BOLD, unnecessary spaces/lines must be REMOVED, ADD bullet points where required etc."
     "Be concise and accurate."
+    "IMPORTANT: Maintain continuity with previous messages"
 )
-
 class GeminiLLM(LLM):
-    model: str = "models/gemini-2.0-flash"
+    model: str = "models/gemini-2.0-flash-lite"
     initial_prompt: str = INITIAL_PROMPT
-
+    
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
         full_prompt = f"{self.initial_prompt}\n\n{prompt}"
         model = genai.GenerativeModel(self.model)
@@ -92,11 +94,12 @@ def get_conversation_chain(vectorstore, initial_prompt=INITIAL_PROMPT):
 def handle_userinput(user_question, conversation, chat_history):
     if not user_question or not conversation:
         return "PDF not loaded yet."
+    history = [(msg["role"], msg["parts"][0]) for msg in chat_history if msg.get("parts")]
     response = conversation.invoke({
         "question": user_question,
-        "chat_history": [(msg["type"], msg["content"]) for msg in chat_history]
+        "chat_history": history
     })
-    bot_msg = response.get("answer", "")
+    bot_msg = response.get("answer", "You can contact the operation team regarding this query at operations@stylework.city!")
     return bot_msg
 
 # format for user input
@@ -276,7 +279,7 @@ GEMINI_ROUTER_PROMPT = """
 
 def classify_intent_with_gemini(user_message: str) -> str:
     try:
-        router_model = genai.GenerativeModel("gemini-2.0-flash")
+        router_model = genai.GenerativeModel("gemini-2.0-flash-lite")
         prompt = GEMINI_ROUTER_PROMPT.format(message=user_message.strip())
         response = router_model.generate_content(prompt)
         intent = response.text.strip().lower()
@@ -317,6 +320,24 @@ def pdf_chat(
     vectorstore = pickle.loads(faiss_bytes)
     conversation = get_conversation_chain(vectorstore)
 
+    """
+    file_list = list_files_in_folder(folder_id)
+    merged_vectorstore = None
+    for _file_id, file_name in file_list:
+        embedding_key = f"{EMBEDDING_NAME}_{file_name}"
+        try:
+            faiss_bytes = load_embeddings(embedding_key)
+            vectorstore = pickle.loads(faiss_bytes)
+            if merged_vectorstore is None:
+                merged_vectorstore = vectorstore
+            else:
+                merged_vectorstore.merge_from(vectorstore)
+        except Exception as e:
+            print(f"[WARN] Could not load embedding for {file_name}: {e}")
+    if merged_vectorstore is None:
+        return {"reply": "No embeddings found for any file."}
+    conversation = get_conversation_chain(merged_vectorstore)
+    """
     chat_sdk_history = []
     for msg in chat_history:
         sender = msg.get("sender")
@@ -348,7 +369,7 @@ def pdf_chat(
         timestamp = None
     if not reply_text or len(reply_text.strip()) < 3:
         reply_text = "You can contact the operation team regarding this query at operations@stylework.city!"
-    
+    print(f"[DEBUG] Gemini Response: {reply_text}")
     return {"reply": reply_text, "session_id": session_id, "user_id": user_id, "timestamp": timestamp, "chat_history": session.get_messages() if session else []}
 
 # setup for the general gemini model
@@ -375,7 +396,7 @@ def general_chat(
     if session is None and session_id:
         return {"error": f"Session {session_id} not found. Please create a new session."}
 
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash-lite")
     prompt = GENERAL_PROMPT.format(message=user_message.strip())
 
     chat_sdk_history = []
@@ -469,11 +490,12 @@ def gemini_chat(
         "	- 'offerings' refers to the type of desk types (day pass, flexi desk, dedicated desk, private cabin) provided by the workspace\n\n"
         "12.If user mentions any words like 'office', 'coworking space', 'shared office', 'workspace', 'desk', 'cabin', 'private office', etc., consider it as a workspace search request unless they ask about the services provided - understand if the request is a question or a statement and then decide accordingly.\n\n"
         "13.If the user asks about workspaces, extract their requirements and respond with a friendly message acknowledging their request.\n"
-        "14.If the user wants to BOOK a workspace - ask the user for details (such as name, email, number of seats required, joining date of space etc or any other appropriate details needed)"
+        "14.If the user wants to BOOK a workspace - ask the user for details (such as name, email, number of seats required, joining date of space etc or any other appropriate details needed). After collecting the details mention that the details are sent to the operations team and they will contact the user soon regarding the workspace query."
+        "15.Make sure the responses are displayed in a neat format - like the subheadings should be bold, unnecessary spaces are removed, add bullet points where required etc."
         "REMEMBER: "
         "	- Not all user messages will be about workspaces. If the user asks about something else, just have a friendly conversation with the knowledge provided to you. And do include JSON in your reply for this.\n\n"
         "	- The recommendation engine will add the actual workspace suggestions after your response.\n"
-        "IMPORTANT: Any user query which is not in the 13 points functionality of the chatbot display the bot message - You can contact the operation team regarding this query at operations@stylework.city!"
+        "IMPORTANT: Any user query which is not in the 15 points functionality of the chatbot display the bot message - You can contact the operation team regarding this query at operations@stylework.city!"
         "IMPORTANT: Maintain continuity with previous messages. If the user refers to something mentioned earlier, use that context in your response.\n\n"
         f"User message: {user_message}\n"
         f"Chat history: {chat_history}\n"
@@ -498,7 +520,7 @@ def gemini_chat(
     filtered_history = [msg for msg in chat_history if msg.get("sender") == "user"]
 
     try:
-        gemini_model = genai.GenerativeModel("gemini-2.0-flash")
+        gemini_model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
         # Build Gemini SDK-compatible chat history
         chat_sdk_history = [
