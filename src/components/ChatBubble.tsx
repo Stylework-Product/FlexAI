@@ -2,11 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { ChatMessage } from '../types';
 import { FileText, User, Bot, Star, Users, Package, MapPinned, Filter, ChevronDown, BadgePercent } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface ChatBubbleProps {
   message: ChatMessage;
 }
- 
 
 const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   const isUser = message.type === 'user';
@@ -87,7 +87,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   };
 
   // Extract unique areas for the current city from all recommendations (not filtered by similarity score)
-  
   const allAreas = useMemo(() => {
     const areaSet = new Set<string>();
     const allRecs = !isUser ? extractWorkspaceRecommendations(recommendationsTextToUse) : [];
@@ -97,7 +96,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
     });
     return Array.from(areaSet).sort();
   }, [recommendationsTextToUse, isUser]);
-  
 
   // Apply filters and sorting
   const filteredAndSortedRecommendations = useMemo(() => {
@@ -137,35 +135,41 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   // Check if similarity scores are present in the recommendations text
   const hasSimilarityScores = recommendationsText && recommendationsText.includes('Similarity Score:');
 
+  // Clean and format the intro text for better display
+  const cleanIntroText = (text: string): string => {
+    if (!text) return '';
+    
+    // Remove code blocks and JSON objects
+    let cleaned = text.replace(/```[\s\S]*?```/g, '').replace(/\{[\s\S]*?\}/g, '');
+    
+    // Remove excessive whitespace and empty lines
+    cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n'); // Replace multiple empty lines with double line break
+    cleaned = cleaned.replace(/^\s+|\s+$/g, ''); // Trim start and end
+    
+    return cleaned;
+  };
+
   // Only show introText if it is not empty, not just whitespace, and not just a code block or Gemini JSON
   let showIntro = false;
   let introToShow = '';
-  console.log(introText)
+  
   if (typeof introText !== 'undefined' && introText.trim().length > 0) {
-    // Remove code blocks and Gemini JSON from introText
-    const cleanedIntro = introText.replace(/```[\s\S]*?```/g, '').replace(/\{[\s\S]*?\}/g, '').trim();
+    const cleanedIntro = cleanIntroText(introText);
     if (cleanedIntro.length > 0) {
       showIntro = true;
       introToShow = cleanedIntro;
     }
   } else if (!hasRecommendations && message.content.trim().length > 0) {
     showIntro = true;
-    introToShow = message.content;
+    introToShow = cleanIntroText(message.content);
   }
-
-  /*
-  const resetFilters = () => {
-    setPriceSort('none');
-    setRatingSort('none');
-    setAreaFilter('all');
-  };
-  */
 
   const resetFilters = () => {
     setAreaFilter('all');
   }
 
   const hasActiveFilters = priceSort !== 'none' || ratingSort !== 'none' || areaFilter !== 'all';
+  
   // Ensure timestamp is a Date object
   let timestamp: Date;
   if (message.timestamp instanceof Date) {
@@ -175,6 +179,32 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   } else {
     timestamp = new Date();
   }
+
+  // Custom markdown components for better formatting
+  const markdownComponents = {
+    // Make headings bold and properly spaced
+    h1: ({ children }: any) => <h1 className="text-lg font-bold mb-3 mt-4 first:mt-0">{children}</h1>,
+    h2: ({ children }: any) => <h2 className="text-base font-bold mb-2 mt-3 first:mt-0">{children}</h2>,
+    h3: ({ children }: any) => <h3 className="text-sm font-bold mb-2 mt-3 first:mt-0">{children}</h3>,
+    
+    // Style paragraphs with proper spacing
+    p: ({ children }: any) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+    
+    // Style lists with proper spacing and bullets
+    ul: ({ children }: any) => <ul className="list-disc list-inside mb-3 space-y-1 ml-2">{children}</ul>,
+    ol: ({ children }: any) => <ol className="list-decimal list-inside mb-3 space-y-1 ml-2">{children}</ol>,
+    li: ({ children }: any) => <li className="leading-relaxed">{children}</li>,
+    
+    // Style strong/bold text
+    strong: ({ children }: any) => <strong className="font-semibold text-gray-900">{children}</strong>,
+    
+    // Style code blocks
+    code: ({ children }: any) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">{children}</code>,
+    pre: ({ children }: any) => <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto text-sm font-mono mb-3">{children}</pre>,
+    
+    // Style blockquotes
+    blockquote: ({ children }: any) => <blockquote className="border-l-4 border-gray-300 pl-4 italic mb-3">{children}</blockquote>,
+  };
 
   return (
     <div className="flex flex-col space-y-4 animate-fadeIn">
@@ -189,13 +219,18 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
                 <Bot size={16} className="text-white" />
               )}
             </div>
-            <div className={`$
-            {isUser
-                ? 'bg-blue-500 text-black rounded-2xl rounded-tr-none'
-                : 'bg-white text-black rounded-2xl rounded-tl-none'
+            <div className={`${
+              isUser
+                ? 'bg-blue-500 text-white rounded-2xl rounded-tr-none'
+                : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100'
             } py-3 px-4 shadow-sm`}>
-              <div className="text-sm md:text-base whitespace-pre-wrap break-words">
-                <ReactMarkdown>{introToShow}</ReactMarkdown>
+              <div className="text-sm md:text-base break-words">
+                <ReactMarkdown 
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
+                  {introToShow}
+                </ReactMarkdown>
               </div>
               {hasAttachments && (
                 <div className="mt-2 pt-2 border-t border-opacity-20 border-gray-200">
@@ -207,7 +242,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
                   ))}
                 </div>
               )}
-              <div className={`text-xs mt-1 ${isUser ? 'text-gray-400' : 'text-gray-400'}`}>
+              <div className={`text-xs mt-2 ${isUser ? 'text-blue-100' : 'text-gray-400'}`}>
                 {timestamp.toLocaleTimeString([], {
                   hour: '2-digit',
                   minute: '2-digit',
@@ -250,48 +285,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
           {showFilters && (
             <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4 shadow-sm">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4"> 
-                {/* Price Sort */}
-                {/*
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Sort by Price
-                  </label>
-                  <select
-                    value={priceSort}
-                    onChange={(e) => {
-                      setPriceSort(e.target.value as any);
-                      if (e.target.value !== 'none') setRatingSort('none');
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="none">Default</option>
-                    <option value="low-high">Price: Low to High</option>
-                    <option value="high-low">Price: High to Low</option>
-                  </select>
-                </div>
-                  */}
-                {/* Rating Sort */}
-                {/*
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Sort by Rating
-                  </label>
-                  <select
-                    value={ratingSort}
-                    onChange={(e) => {
-                      setRatingSort(e.target.value as any);
-                      if (e.target.value !== 'none') setPriceSort('none');
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="none">Default</option>
-                    <option value="high-low">Rating: High to Low</option>
-                    <option value="low-high">Rating: Low to High</option>
-                  </select>
-                </div>
-                  */}
-                {/* Area Filter */}
-                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Filter by Location
