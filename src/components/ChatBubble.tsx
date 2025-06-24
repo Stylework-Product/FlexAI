@@ -2,11 +2,11 @@ import React, { useState, useMemo } from 'react';
 import { ChatMessage } from '../types';
 import { FileText, User, Bot, Star, Users, Package, MapPinned, Filter, ChevronDown, BadgePercent } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface ChatBubbleProps {
   message: ChatMessage;
 }
- 
 
 const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   const isUser = message.type === 'user';
@@ -87,7 +87,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   };
 
   // Extract unique areas for the current city from all recommendations (not filtered by similarity score)
-  
   const allAreas = useMemo(() => {
     const areaSet = new Set<string>();
     const allRecs = !isUser ? extractWorkspaceRecommendations(recommendationsTextToUse) : [];
@@ -97,7 +96,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
     });
     return Array.from(areaSet).sort();
   }, [recommendationsTextToUse, isUser]);
-  
 
   // Apply filters and sorting
   const filteredAndSortedRecommendations = useMemo(() => {
@@ -137,35 +135,41 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   // Check if similarity scores are present in the recommendations text
   const hasSimilarityScores = recommendationsText && recommendationsText.includes('Similarity Score:');
 
+  // Clean and format the intro text for better display
+  const cleanIntroText = (text: string): string => {
+    if (!text) return '';
+    
+    // Remove code blocks and JSON objects
+    let cleaned = text.replace(/```[\s\S]*?```/g, '').replace(/\{[\s\S]*?\}/g, '');
+    
+    // Remove excessive whitespace and empty lines
+    cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n'); // Replace multiple empty lines with double line break
+    cleaned = cleaned.replace(/^\s+|\s+$/g, ''); // Trim start and end
+    
+    return cleaned;
+  };
+
   // Only show introText if it is not empty, not just whitespace, and not just a code block or Gemini JSON
   let showIntro = false;
   let introToShow = '';
-  console.log(introText)
+  
   if (typeof introText !== 'undefined' && introText.trim().length > 0) {
-    // Remove code blocks and Gemini JSON from introText
-    const cleanedIntro = introText.replace(/```[\s\S]*?```/g, '').replace(/\{[\s\S]*?\}/g, '').trim();
+    const cleanedIntro = cleanIntroText(introText);
     if (cleanedIntro.length > 0) {
       showIntro = true;
       introToShow = cleanedIntro;
     }
   } else if (!hasRecommendations && message.content.trim().length > 0) {
     showIntro = true;
-    introToShow = message.content;
+    introToShow = cleanIntroText(message.content);
   }
-
-  /*
-  const resetFilters = () => {
-    setPriceSort('none');
-    setRatingSort('none');
-    setAreaFilter('all');
-  };
-  */
 
   const resetFilters = () => {
     setAreaFilter('all');
   }
 
   const hasActiveFilters = priceSort !== 'none' || ratingSort !== 'none' || areaFilter !== 'all';
+  
   // Ensure timestamp is a Date object
   let timestamp: Date;
   if (message.timestamp instanceof Date) {
@@ -175,6 +179,82 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   } else {
     timestamp = new Date();
   }
+
+  // Custom markdown components for better formatting
+  const markdownComponents = {
+    // Main heading with large bullet
+    h1: ({ children }: any) => (
+      <h1 className="text-lg font-bold mb-3 mt-4 first:mt-0 flex items-start">
+        <span className="inline-block w-2 h-2 bg-blue-500 rounded-full mt-2 mr-2 flex-shrink-0"></span>
+        <span>{children}</span>
+      </h1>
+    ),
+    
+    // Subheading with medium bullet
+    h2: ({ children }: any) => (
+      <h2 className="text-base font-semibold mb-1 mt-3 first:mt-0 pl-4 relative">
+        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-blue-400 rounded-full"></span>
+        <span className="pl-2">{children}</span>
+      </h2>
+    ),
+    
+    // Sub-subheading with small bullet
+    h3: ({ children }: any) => (
+      <h3 className="text-sm font-medium mb-1 mt-2 pl-6 relative">
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 w-1 h-1 bg-blue-300 rounded-full"></span>
+        <span className="pl-2">{children}</span>
+      </h3>
+    ),
+    
+    // Regular paragraphs
+    p: ({ children }: any) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+    
+    // Unordered lists with custom bullets
+    ul: ({ children }: any) => <ul className="mb-3 space-y-1">{children}</ul>,
+    
+    // List items with custom bullet points
+    li: ({ node, ...props }: any) => {
+      // Check if this is a direct child of ul (first level)
+      const isTopLevel = node?.parent?.tagName === 'ul' || node?.parent?.tagName === 'ol';
+      
+      return (
+        <li className="leading-relaxed flex items-start pl-4">
+          <span className="inline-block w-1.5 h-1.5 bg-gray-500 rounded-full mt-2 mr-2 flex-shrink-0"></span>
+          <div className="flex-1">
+            {props.children}
+          </div>
+        </li>
+      );
+    },
+    
+    // Ordered lists
+    ol: ({ children }: any) => <ol className="list-decimal list-inside mb-3 space-y-1 ml-4">{children}</ol>,
+    
+    // Bold text
+    strong: ({ children }: any) => <strong className="font-semibold text-gray-900">{children}</strong>,
+    
+    // Links
+    a: ({ href, children }: any) => (
+      <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    ),
+    
+    // Blockquotes
+    blockquote: ({ children }: any) => (
+      <blockquote className="border-l-4 border-gray-300 pl-4 py-1 my-2 text-gray-600">
+        {children}
+      </blockquote>
+    ),
+    
+    // Code blocks
+    code: ({ children }: any) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">{children}</code>,
+    pre: ({ children }: any) => <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto text-sm font-mono mb-3">{children}</pre>,
+    
+    // Nested list items
+    'li > ul': ({ children }: any) => <ul className="ml-4 mt-1 space-y-1">{children}</ul>,
+    'li > ol': ({ children }: any) => <ol className="ml-4 mt-1 space-y-1 list-decimal">{children}</ol>
+  };
 
   return (
     <div className="flex flex-col space-y-4 animate-fadeIn">
@@ -189,13 +269,18 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
                 <Bot size={16} className="text-white" />
               )}
             </div>
-            <div className={`$
-            {isUser
-                ? 'bg-blue-500 text-black rounded-2xl rounded-tr-none'
-                : 'bg-white text-black rounded-2xl rounded-tl-none'
+            <div className={`${
+              isUser
+                ? 'bg-blue-500 text-white rounded-2xl rounded-tr-none'
+                : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100'
             } py-3 px-4 shadow-sm`}>
-              <div className="text-sm md:text-base whitespace-pre-wrap break-words">
-                <ReactMarkdown>{introToShow}</ReactMarkdown>
+              <div className="text-sm md:text-base break-words">
+                <ReactMarkdown 
+                  remarkPlugins={[remarkGfm]}
+                  components={markdownComponents}
+                >
+                  {introToShow}
+                </ReactMarkdown>
               </div>
               {hasAttachments && (
                 <div className="mt-2 pt-2 border-t border-opacity-20 border-gray-200">
@@ -207,7 +292,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
                   ))}
                 </div>
               )}
-              <div className={`text-xs mt-1 ${isUser ? 'text-gray-400' : 'text-gray-400'}`}>
+              <div className={`text-xs mt-2 ${isUser ? 'text-blue-100' : 'text-gray-400'}`}>
                 {timestamp.toLocaleTimeString([], {
                   hour: '2-digit',
                   minute: '2-digit',
@@ -250,48 +335,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
           {showFilters && (
             <div className="bg-white border border-gray-200 rounded-lg p-4 mb-4 shadow-sm">
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4"> 
-                {/* Price Sort */}
-                {/*
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Sort by Price
-                  </label>
-                  <select
-                    value={priceSort}
-                    onChange={(e) => {
-                      setPriceSort(e.target.value as any);
-                      if (e.target.value !== 'none') setRatingSort('none');
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="none">Default</option>
-                    <option value="low-high">Price: Low to High</option>
-                    <option value="high-low">Price: High to Low</option>
-                  </select>
-                </div>
-                  */}
-                {/* Rating Sort */}
-                {/*
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Sort by Rating
-                  </label>
-                  <select
-                    value={ratingSort}
-                    onChange={(e) => {
-                      setRatingSort(e.target.value as any);
-                      if (e.target.value !== 'none') setPriceSort('none');
-                    }}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  >
-                    <option value="none">Default</option>
-                    <option value="high-low">Rating: High to Low</option>
-                    <option value="low-high">Rating: Low to High</option>
-                  </select>
-                </div>
-                  */}
-                {/* Area Filter */}
-                
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Filter by Location

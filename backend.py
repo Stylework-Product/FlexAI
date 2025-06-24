@@ -462,7 +462,7 @@ def gemini_chat(
         "3. DO NOT provide any workspace recommendations in your response\n"
         "4. Your ONLY job is to:\n"
         "	- Have a friendly conversation with the user\n"
-        "	- Extract the following information and format as JSON: workspaceName, city, area, workspaceType (options: day pass, flexi desk, dedicated desk, private cabin), size, amenities (list), bundle (options: standard, silver, gold, platinum, platinum+), budget, rating, offeringType (options: day pass, flexi desk, dedicated desk, private cabin)\n"
+        "	- Extract the following information and format as JSON: workspaceName, city, area, workspaceType (options: day pass, flexi desk, dedicated desk, private cabin), size, amenities (list), bundle (also called category) (list - options: standard, silver, gold, platinum, platinum+), budget, rating, offeringType (options: day pass, flexi desk, dedicated desk, private cabin)\n"
         "	- Answer users' questions about the platform and the recommendations provided (eg if they ask about what amenities are provided by a specific workspace or the price of a workspace you should be able to answer it based on the information provided) and this is NOT a request for recommendation engine.\n"
         "	- You should also be able to answer basic questions like among the workspaces recommended which one has the best rating, which one is the cheapest, etc. This is NOT a workspace request so you do not have to search the recommendation engine.\n"
         "	- Extract search parameters from their message\n"
@@ -490,7 +490,7 @@ def gemini_chat(
         "	- 'offerings' refers to the type of desk types (day pass, flexi desk, dedicated desk, private cabin) provided by the workspace\n\n"
         "12.If user mentions any words like 'office', 'coworking space', 'shared office', 'workspace', 'desk', 'cabin', 'private office', etc., consider it as a workspace search request unless they ask about the services provided - understand if the request is a question or a statement and then decide accordingly.\n\n"
         "13.If the user asks about workspaces, extract their requirements and respond with a friendly message acknowledging their request.\n"
-        "14.If the user wants to BOOK a workspace - ask the user for details (such as name, email, number of seats required, joining date of space etc or any other appropriate details needed). After collecting the details mention that the details are sent to the operations team and they will contact the user soon regarding the workspace query."
+        "14.If the user wants to BOOK a workspace - ask the user for details (such as name, email, number of seats required, joining date of space etc or any other appropriate details needed) - only after the user had requested to look for a workspace, if workspace request was not iniitalized then go for the request. After collecting the details mention that the details are sent to the operations team and they will contact the user soon regarding the workspace query."
         "15.Make sure the responses are displayed in a neat format - like the subheadings should be bold, unnecessary spaces are removed, add bullet points where required etc."
         "REMEMBER: "
         "	- Not all user messages will be about workspaces. If the user asks about something else, just have a friendly conversation with the knowledge provided to you. And do include JSON in your reply for this.\n\n"
@@ -515,7 +515,7 @@ def gemini_chat(
         "rating": 0,
         "offeringType": "day pass"
         }"""
-        "Always update the full structure in workspace request. NEVER skip this JSON - for workspace request ONLY."
+        "Always update the full structure. NEVER skip this JSON - for workspace request ONLY."
     )
     filtered_history = [msg for msg in chat_history if msg.get("sender") == "user"]
 
@@ -561,9 +561,9 @@ def gemini_chat(
     lines = raw_reply.split('\n')
     cleaned_lines = []
     workspace_keywords = [
-        'workspaceName:', 'coworking space:', 'Address:', 'location:', 'bundle:', 'budget:', 'Workspace Type:',
+        'workspaceName:', 'coworking space:', 'Address:', 'location:', 'bundle:', 'budget:',
         'Amenities:', 'Rating:', 'Seats available:', 'capacity:', 'size:', 'offeringType:',
-        'visit:', 'book now:', 'contact:', 'city:', 'Offerings:', 'workspaceType:', 'Category:', 'Link:',
+        'visit:', 'book now:', 'contact:', 'Offerings:', 'workspaceType:', 'Category:', 'Link:',
         'workspace name'
     ]
     
@@ -628,7 +628,7 @@ def gemini_chat(
                 break
     
     # the main recommendation engine setup - starts by extracting input from the user query
-    if extracted and (extracted.get("city") or extracted.get("workspaceType") or extracted.get("area")):
+    if extracted and (extracted.get("city") and extracted.get("workspaceType")):
         try:
             name = str(extracted.get("workspaceName") or "").strip().lower()
             raw_city = str(extracted.get("city") or "").strip().lower()
