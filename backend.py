@@ -8,7 +8,7 @@ from sklearn.preprocessing import MultiLabelBinarizer, MinMaxScaler
 from fastapi.middleware.cors import CORSMiddleware
 import re
 import json
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import os
 import requests
 from connection import ChatSession, create_new_session, get_existing_session
@@ -29,7 +29,9 @@ import pickle
 from embeddings import GeminiEmbeddings
 from connection_app import load_embeddings
 from embedding_manager import list_files_in_folder, EMBEDDING_NAME, folder_id
- 
+from fastapi.responses import StreamingResponse
+import asyncio
+
 app = FastAPI(title="FlexAI", description="An AI-assistant for workspace booking")
 
 app.add_middleware(
@@ -43,6 +45,7 @@ app.add_middleware(
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+KRUTRIM_MAPS_API_KEY = os.getenv("KRUTRIM_MAPS_API_KEY")
 MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES"))
 MIN_SIMILARITY_SCORE = float(os.getenv("MIN_SIMILARITY_SCORE"))
 SHEET_API_KEY = os.getenv("SHEET_API_KEY")
@@ -53,6 +56,13 @@ EMBEDDING_NAME = "embeddings"
 NO_OF_SPACES = os.getenv("NO_OF_SPACES")
 
 genai.configure(api_key=GEMINI_API_KEY)
+
+async def stream_reply_text(text: str):
+    words = text.split()
+    for word in words:
+        yield word + ' '
+        await asyncio.sleep(0.05)  # adjust speed here
+
 
 # Gemini set up for pdf document answering
 INITIAL_PROMPT = (
@@ -66,7 +76,7 @@ INITIAL_PROMPT = (
     "IMPORTANT: Maintain continuity with previous messages"
 )
 class GeminiLLM(LLM):
-    model: str = "models/gemini-2.0-flash-lite"
+    model: str = "models/gemini-1.5-flash"
     initial_prompt: str = INITIAL_PROMPT
     
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
@@ -106,14 +116,16 @@ def handle_userinput(user_question, conversation, chat_history):
 class UserInput(BaseModel):
     workspaceName: Optional[str] = ''
     city: str
-    area: Optional[List[str]] = []  
+    area: Optional[List[str]] = []
     workspaceType: str
     size: Optional[int] = 1
     amenities: Optional[List[str]] = []
-    bundle: Optional[List[str]] = []    
+    bundle: Optional[List[str]] = []
     budget: Optional[int] = 0
     rating: Optional[int] = 0
     offeringType: Optional[str] = ''
+    placeType: Optional[str] = ''
+    maxDistanceKm: Optional[float] = 4.0  # Default 4km radius for nearby places
 
 # format for chat message
 class ChatMessage(BaseModel):
@@ -264,6 +276,61 @@ for city in df['CITY'].unique():
     if city_lower == "warangal (urban)":
         city_alias_map["warangal"] = city
 
+def format_workspace_recommendations(result: List[Dict[str, Any]]) -> str:
+    if not result:
+        return "\n\nSorry, I couldn't find any workspaces matching your specific criteria. You might want to try adjusting your requirements."
+
+    recommendations_text = "\n\nHere are some workspace recommendations for you:\n"
+
+    for idx, rec in enumerate(result, 1):
+        recommendations_text += f"\n{idx}. {rec['name'].title()}"
+
+        if rec.get('area'):
+            recommendations_text += f" (Area: {rec['area'].title()})"
+
+        recommendations_text += f"\n   Address: {rec.get('address', 'Not available')}"
+
+        recommendations_text += f"\n   Workspace Type: {rec.get('workspace_type', '').title()}"
+
+        offerings = rec.get('offerings')
+        if offerings:
+            recommendations_text += f"\n   Offerings: {offerings}"
+
+        amenities = rec.get('amenities')
+        if amenities:
+            amenities_str = ', '.join(amenities)
+            recommendations_text += f"\n   Amenities: {amenities_str}"
+
+        if rec.get('seats_available'):
+            recommendations_text += f"\n   Seats Available: {rec['seats_available']}"
+
+        if rec.get('rating'):
+            recommendations_text += f"\n   Rating: {rec['rating']}"
+
+        if rec.get('category'):
+            recommendations_text += f"\n   Category: {rec['category']}"
+
+        if rec.get('price'):
+            recommendations_text += f"\n   Price: ₹{rec['price']}"
+
+        if rec.get('similarity_score', 0) > 70:
+            recommendations_text += f"\n   Similarity Score: {rec['similarity_score']}%"
+
+        # Constructing the dynamic workspace link
+        name_slug = rec['name'].lower().replace(' ', '-').replace('&', 'and')
+        city_slug = rec.get('city', '').lower().replace(' ', '-')
+        workspace_type = rec.get('workspace_type', '').lower()
+
+        if workspace_type == "private cabin":
+            type_slug = "private-office-cabins"
+        else:
+            type_slug = workspace_type.replace(' ', '-')
+
+        link = f"https://www.stylework.city/{type_slug}/{city_slug}/{name_slug}"
+        recommendations_text += f"\n   Link: [View Details]({link})\n"
+
+    return recommendations_text
+
 # setup for router gemini - which routes the user query to 3 different gemini models
 GEMINI_ROUTER_PROMPT = """
     You are a router assistant. Given a user message, decide if it is about:
@@ -279,7 +346,7 @@ GEMINI_ROUTER_PROMPT = """
 
 def classify_intent_with_gemini(user_message: str) -> str:
     try:
-        router_model = genai.GenerativeModel("gemini-2.0-flash-lite")
+        router_model = genai.GenerativeModel("gemini-1.5-flash")
         prompt = GEMINI_ROUTER_PROMPT.format(message=user_message.strip())
         response = router_model.generate_content(prompt)
         intent = response.text.strip().lower()
@@ -292,7 +359,7 @@ def classify_intent_with_gemini(user_message: str) -> str:
         return "general"
 
 @app.post("/multimodal_agent")
-def multimodal_agent_router(
+async def multimodal_agent_router(
     user_message: str = Body(..., embed=True),
     chat_history: list = Body([], embed=True),
     session_id: Optional[str] = Body(None, embed=True),
@@ -301,14 +368,14 @@ def multimodal_agent_router(
     intent = classify_intent_with_gemini(user_message)
     print(intent)
     if intent == "pdf":
-        return pdf_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
+        return await pdf_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
     elif intent == "workspace":
-        return gemini_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
+        return await gemini_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
     else:
-        return general_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
+        return await gemini_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
 
 @app.post("/pdf_chat")
-def pdf_chat(
+async def pdf_chat(
     user_message: str = Body(..., embed=True),
     chat_history: list = Body([], embed=True),
     session_id: Optional[str] = Body(None, embed=True),
@@ -370,7 +437,8 @@ def pdf_chat(
     if not reply_text or len(reply_text.strip()) < 3:
         reply_text = "You can contact the operation team regarding this query at operations@stylework.city!"
     print(f"[DEBUG] Gemini Response: {reply_text}")
-    return {"reply": reply_text, "session_id": session_id, "user_id": user_id, "timestamp": timestamp, "chat_history": session.get_messages() if session else []}
+    return StreamingResponse(stream_reply_text(reply_text), media_type="text/plain")
+    #return {"reply": reply_text, "session_id": session_id, "user_id": user_id, "timestamp": timestamp, "chat_history": session.get_messages() if session else []}
 
 # setup for the general gemini model
 GENERAL_PROMPT = """
@@ -396,7 +464,7 @@ def general_chat(
     if session is None and session_id:
         return {"error": f"Session {session_id} not found. Please create a new session."}
 
-    model = genai.GenerativeModel("gemini-2.0-flash-lite")
+    model = genai.GenerativeModel("gemini-1.5-flash")
     prompt = GENERAL_PROMPT.format(message=user_message.strip())
 
     chat_sdk_history = []
@@ -427,7 +495,7 @@ def general_chat(
 
 # setup for the recommendation gemini model
 @app.post("/gemini_chat")
-def gemini_chat(
+async def gemini_chat(
     user_message: str = Body(..., embed=True),
     chat_history: list = Body([], embed=True),
     session_id: Optional[str] = Body(None, embed=True),
@@ -454,33 +522,29 @@ def gemini_chat(
     })
 
     system_prompt = (
-        "You are FlexiAI, a helpful assistant for a workspace booking platform called Styleworks. Your main job is to assist users in searching for and booking workspaces.\n"
+        "You are FlexAI, a helpful assistant for a workspace booking platform called Styleworks. Your main job is to assist users in searching for and booking workspaces.\n"
         "Stylework is India's largest flexible workspace provider, offering a robust solution for businesses of various sizes. With a presence in 100+ cities in India, we connect individuals, startups, and enterprises to a diverse network of ready-to-move-in coworking and managed office spaces."
         "CRITICAL INSTRUCTIONS:\n"
         "1. DO NOT filter, search, or recommend any workspaces yourself\n"
         "2. DO NOT mention specific workspace names, addresses, or details\n"
         "3. DO NOT provide any workspace recommendations in your response\n"
         "4. Your ONLY job is to:\n"
-        "	- Have a friendly conversation with the user\n"
-        "	- Extract the following information and format as JSON: workspaceName, city, area, workspaceType (options: day pass, flexi desk, dedicated desk, private cabin), size, amenities (list), bundle (also called category) (list - options: standard, silver, gold, platinum, platinum+), budget, rating, offeringType (options: day pass, flexi desk, dedicated desk, private cabin)\n"
+        "	- Have a friendly conversation with the user. While having friendly conversation do not include JSON in your reply as it is not a workspace query.\n"
+        "	- Extract the following information and format as JSON: workspaceName, city, area, workspaceType (options: day pass, flexi desk, dedicated desk, private cabin), size, amenities (list), bundle (also called category) (list - options: standard, silver, gold, platinum, platinum+), budget, rating, offeringType (options: day pass, flexi desk, dedicated desk, private cabin), placeType (cafe, resturant, bank etc.)\n"
         "	- Answer users' questions about the platform and the recommendations provided (eg if they ask about what amenities are provided by a specific workspace or the price of a workspace you should be able to answer it based on the information provided) and this is NOT a request for recommendation engine.\n"
-        "	- You should also be able to answer basic questions like among the workspaces recommended which one has the best rating, which one is the cheapest, etc. This is NOT a workspace request so you do not have to search the recommendation engine.\n"
         "	- Extract search parameters from their message\n"
         "	- Let the recommendation engine handle ALL workspace suggestions\n"
         "	- Make sure user provides city and type of workspace they are looking for, if not provided in the start then ask them these questions one after another. After the initial requirements are provided ask them if they have a specific requirement in amentities, budget, area etc.\n"
         "	- If the workspace type is not specified in the start but is mentioned later, update the search parameters accordingly but if it is specified in the start and not explicitly told to change later then keep it same.\n"
         "	- If the user specifies a workspace type in the start, use that type for the search but if they mention it later then update the search parameters(workspaceType) accordingly.\n\n"
-        "5. For **every workspace-related user message**, you MUST extract and return the full JSON object, even if only one field changes (e.g., just budget).\n"
-        "6. DO NOT skip JSON during workspace-related user message just because it was already provided earlier. Always repeat the full updated JSON when any user parameter changes. ONLY for workspace requests\n"
-        "7. You are a helpful assistant and reply to users in a friendly manner when the user doesnt ask workspace related queries. While having friendly conversation do not include JSON in your reply as it is not a workspace query.\n"
-        "8. You DO NOT have to filter any workspace yourself, the engine has the capability to do so."
-        "9. When user asks the price of a workspace based on the offering - the recommendation engine has the capability to do so. DO NOT think on your own."
-        "10.When a user asks about workspaces:\n"
+        "5. DO NOT skip JSON during workspace-related user message just because it was already provided earlier. Always repeat the full updated JSON when any user parameter changes. ONLY for workspace requests\n"
+        "6. When user asks the price of a workspace based on the offering - the recommendation engine has the capability to do so. DO NOT think on your own."
+        "7. When a user asks about workspaces:\n"
         "	- Acknowledge their request professionally\n"
         "	- If information is missing, set to null or empty values (0 for integer columns and [] for list columns)\n"
         "	- DO NOT include any specific workspace details or recommendations\n"
         "	- Extract the input parameters from the user message and format them as JSON.\n\n"
-        "11.Understand important keywords:\n"
+        "8.Understand important keywords:\n"
         "	- 'day pass' means a single day access\n"
         "	- 'flexi desk' means a flexible desk for a month\n"
         "	- 'dedicated desk' means a personal desk for a month\n"
@@ -488,14 +552,11 @@ def gemini_chat(
         "	- 'bundle' refers to the pricing category (standard, silver, gold, platinum, platinum+)\n"
         "	- 'budget' refers to the maximum price they are willing to pay\n"
         "	- 'offerings' refers to the type of desk types (day pass, flexi desk, dedicated desk, private cabin) provided by the workspace\n\n"
-        "12.If user mentions any words like 'office', 'coworking space', 'shared office', 'workspace', 'desk', 'cabin', 'private office', etc., consider it as a workspace search request unless they ask about the services provided - understand if the request is a question or a statement and then decide accordingly.\n\n"
-        "13.If the user asks about workspaces, extract their requirements and respond with a friendly message acknowledging their request.\n"
-        "14.If the user wants to BOOK a workspace - ask the user for details (such as name, email, number of seats required, joining date of space etc or any other appropriate details needed) - only after the user had requested to look for a workspace, if workspace request was not iniitalized then go for the request. After collecting the details mention that the details are sent to the operations team and they will contact the user soon regarding the workspace query."
-        "15.Make sure the responses are displayed in a neat format - like the subheadings should be bold, unnecessary spaces are removed, add bullet points where required etc."
-        "REMEMBER: "
-        "	- Not all user messages will be about workspaces. If the user asks about something else, just have a friendly conversation with the knowledge provided to you. And do include JSON in your reply for this.\n\n"
-        "	- The recommendation engine will add the actual workspace suggestions after your response.\n"
-        "IMPORTANT: Any user query which is not in the 15 points functionality of the chatbot display the bot message - You can contact the operation team regarding this query at operations@stylework.city!"
+        "   - 'placeType' refers to the type of place user wants the workspace to be near by (cafe, restaurant, bank etc)\n"
+        "9.If user mentions any words like 'office', 'coworking space', 'shared office', 'workspace', 'desk', 'cabin', 'private office', etc., consider it as a workspace search request unless they ask about the services provided - understand if the request is a question or a statement and then decide accordingly.\n\n"
+        "10.If the user wants to BOOK a workspace - ask the user for details (such as name, email, number of seats required, joining date of space etc or any other appropriate details needed) - only after the user had requested to look for a workspace, if workspace request was not iniitalized then go for the request. After collecting the details mention that the details are sent to the operations team and they will contact the user soon regarding the workspace query."
+        "11.Make sure the responses are displayed in a neat format - like the subheadings should be bold, unnecessary spaces are removed, add bullet points where required etc."
+        "IMPORTANT: Any user query which is not in the 11 points functionality of the chatbot display the bot message - You can contact the operation team regarding this query at operations@stylework.city!"
         "IMPORTANT: Maintain continuity with previous messages. If the user refers to something mentioned earlier, use that context in your response.\n\n"
         f"User message: {user_message}\n"
         f"Chat history: {chat_history}\n"
@@ -513,14 +574,15 @@ def gemini_chat(
         "bundle": ["gold"],
         "budget": 450,
         "rating": 0,
-        "offeringType": "day pass"
+        "offeringType": "day pass",
+        "placeType": "cafe"
         }"""
         "Always update the full structure. NEVER skip this JSON - for workspace request ONLY."
     )
     filtered_history = [msg for msg in chat_history if msg.get("sender") == "user"]
 
     try:
-        gemini_model = genai.GenerativeModel("gemini-2.0-flash-lite")
+        gemini_model = genai.GenerativeModel("gemini-1.5-flash")
 
         # Build Gemini SDK-compatible chat history
         chat_sdk_history = [
@@ -723,6 +785,21 @@ def gemini_chat(
                 final_reply += recommendations_text
                 return {"reply": final_reply}
 
+            # Check for location-based query (e.g., "show me day pass in delhi near a cafe")
+            location_based_query = False
+            place_type = None
+            
+            # First check if we have placeType in the extracted JSON
+            if extracted and 'placeType' in extracted and extracted['placeType']:
+                place_type = extracted['placeType']
+                location_based_query = True
+            
+            if location_based_query and place_type and city:
+                print(f"Workspace type: {workspace_type}, City: {city}, Place type: {place_type}")
+                response = await nearbyplaces_chat(user_message, df_filtered, chat_history, session_id, user_id, place_type)
+                df_filtered = response["filtered_results"]
+                print(df_filtered.head(10).to_string(max_colwidth=200, max_rows=None, max_cols=None))
+
             # --- Feature similarity calculations (always use all available features) ---
             similarities_list = []
             weights = []
@@ -857,58 +934,8 @@ def gemini_chat(
                         return float('inf')
                 result = sorted(result, key=get_rating, reverse=True)
             
-            # recomendations stored and sent to frontend
-            if result:
-                recommendations_text = "\n\nHere are some workspace recommendations for you:\n"
-                for idx, rec in enumerate(result, 1):
-                    recommendations_text += (
-                        f"\n{idx}. {rec['name'].title()}"
-                    )
-                    if rec['area']:
-                        recommendations_text += f" (Area: {rec['area'].title()})"
-                    """
-                    if rec['area'] and rec['city']:
-                        recommendations_text += f" ({rec['area']}, {rec['city']})"
-                    elif rec['city']:
-                        recommendations_text += f" ({rec['city']})"
-                    """
-                    recommendations_text += f"\n   Address: {rec['address']}"
+            final_reply += format_workspace_recommendations(result)
 
-                    recommendations_text += f"\n   Workspace Type: {rec['workspace_type'].title()}"
-
-                    recommendations_text += f"\n   Offerings: {rec['offerings']}"
-
-                    if rec['amenities']:
-                        amenities_str = ', '.join(rec['amenities'])  
-                        recommendations_text += f"\n   Amenities: {amenities_str}"
-                    
-                    if rec['seats_available']:
-                        recommendations_text += f"\n   Seats Available: {rec['seats_available']}"
-                    
-                    if rec['rating']:
-                        recommendations_text += f"\n   Rating: {rec['rating']}"
-                    
-                    if rec['category']:
-                        recommendations_text += f"\n   Category: {rec['category']}"
-
-                    if rec['price']:
-                        recommendations_text += f"\n   Price: ₹{rec['price']}"
-                    
-                    if rec['similarity_score'] > 70:
-                        recommendations_text += f"\n   Similarity Score: {rec['similarity_score']}% "
-
-                    workspace_slug = rec['name'].lower().replace(' ', '-').replace('&', 'and')
-                    city_slug = rec['city'].lower().replace(' ', '-')
-                    if rec['workspace_type'].lower() == "private cabin":
-                        workspace_type_slug = "private-office-cabins"
-                    else:
-                        workspace_type_slug = rec['workspace_type'].replace(' ', '-')
-                    
-                    recommendations_text += f"\n   Link: [View Details](https://www.stylework.city/{workspace_type_slug}/{city_slug}/{workspace_slug})\n"
-                
-                final_reply += recommendations_text
-            else:
-                final_reply += "\n\nSorry, I couldn't find any workspaces matching your specific criteria. You might want to try adjusting your requirements."
         except Exception as e:
             print(f"Error in recommendation engine: {str(e)}")
             final_reply += "\n\nI understand your requirements, but encountered an issue while searching. Please try again."
@@ -919,3 +946,147 @@ def gemini_chat(
     timestamp = last_msg.get("timestamp") if last_msg else None
 
     return {"reply": final_reply, "timestamp": timestamp}
+
+# Gemini agent for nearby places queries
+NEARBY_PROMPT = """
+You are a helpful assistant that helps users find workspaces based on nearby places like cafes, restaurants, etc.
+Your task is to analyze the user's query and determine:
+1. Filter the workspaces based on the place type - using your own intellegence
+
+Eg. There are multiple workspaces in df_filtered, if the place_type is "cafe", then filter the workspaces on the basis that which workspaces are closer to a cafe. So, return the workspaces that are closer to a cafe.
+
+Respond in the following JSON format:
+    {
+        "Unboxed Coworking": "",
+        "ADDRESS": "",
+        "workspace_type": "",
+        "CITY": "",
+        "AREA": [""],
+        "CATEGORY AS PER PRICING": "",
+        "AMENITIES": [],
+        "STATUS": "",
+        "seats_available": 0,
+        "avg_rating": 0,
+        "Offering": ""
+    }
+
+Example queries and responses:
+
+User: Show me workspaces near a cafe with good wifi
+[
+  {
+    "Unboxed Coworking": "Innov8 Connaught Place",
+    "ADDRESS": "Connaught Place, New Delhi",
+    "workspace_type": "private cabin",
+    "CITY": "delhi nct",
+    "AREA": ["connaught place"],
+    "CATEGORY AS PER PRICING": "private cabin",
+    "AMENITIES": ["Wifi", "Cafeteria", "Reception"],
+    "STATUS": "live",
+    "seats_available": 10,
+    "avg_rating": 4.5,
+    "Offering": "private cabin"
+  },
+  {
+    "Unboxed Coworking": "91springboard Nehru Place",
+    "ADDRESS": "Nehru Place, New Delhi",
+    "workspace_type": "private cabin",
+    "CITY": "delhi nct",
+    "AREA": ["nehru place"],
+    "CATEGORY AS PER PRICING": "private cabin",
+    "AMENITIES": ["Wifi", "Parking", "Reception"],
+    "STATUS": "live",
+    "seats_available": 5,
+    "avg_rating": 4.2,
+    "Offering": "private cabin"
+  }
+]
+
+    so return the Unboxed Coworking, ADDRESS, workspace_type, CITY, AREA, AMENITIES, STATUS, seats_available, avg_rating, Offering of all the workspaces which are near the cafe from the dataset provided
+
+IMPORTANT: Use the data from the dataset ONLY
+
+"""
+
+NEARBY_PLACES_PROMPT = """
+You are a helpful assistant that helps users find workspaces based on nearby places like cafes, restaurants, etc.
+Your task is to analyze the user's query and identify only the workspace names from the dataset that are near the given place type.
+
+Respond with a JSON array of strings like: [Space Name 1, Space Name 2, .....]
+
+Eg - User queries: Show me day pass in delhi near a cafe
+["Innov8 Connaught Place", "91springboard Nehru Place"]
+
+IMPORTANT: Use only the data from the dataset provided.
+
+"""
+
+async def parse_nearby_workspace(query: str, place_type: str, df_filtered: List[Dict]) -> Dict[str, Any]:
+    """Parse the workspaces about nearby places using Gemini."""
+    try:
+        # Initialize Gemini model
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        # Create the prompt
+        prompt = f"""{NEARBY_PLACES_PROMPT}
+        
+        User query: {query}
+
+        Place type: {place_type}
+
+        Dataset: {df_filtered}
+        
+        Respond with only the JSON array, no other text:"""
+        
+        # Get response from Gemini
+        response = model.generate_content(prompt)
+        response_text = response.text.strip()
+
+        if response_text.startswith('```json'):
+            response_text = response_text[response_text.find('['):response_text.rfind(']')+1]
+        
+        result = json.loads(response_text)
+        return result
+    except Exception as e:
+        print(f"Error parsing nearby query: {str(e)}")
+        return []
+
+@app.post("/api/nearbyplaces_chat")
+async def nearbyplaces_chat(
+    user_message: str = Body(..., embed=True),
+    df_filtered: List[Dict] = Body(..., embed=True),
+    chat_history: List[Dict] = Body([], embed=True),
+    session_id: Optional[str] = Body(None, embed=True),
+    user_id: Optional[str] = Body(None, embed=True),
+    place_type: Optional[str] = Body(None, embed=True)
+):
+    """
+    Endpoint to handle natural language queries about workspaces near specific places.
+    Uses Gemini to understand the query and filter workspaces accordingly.
+    """
+    try:
+        # Parse the user's query using Gemini
+        filtered_results = await parse_nearby_workspace(user_message, place_type, df_filtered)
+        
+        if not filtered_results:
+            return {
+                "filtered_results": df_filtered
+            }
+
+        matched_names = filtered_results  # now a list of names
+        df = pd.DataFrame(df_filtered)
+        df_filtered = df[df["Unboxed Coworking"].isin(matched_names)]
+            
+        if len(filtered_results) == 0:
+            response_text = " However, no workspaces match all your criteria. Would you like to try different filters?"
+        
+        return {
+            "filtered_results": df_filtered
+        }
+        
+    except Exception as e:
+        print(f"Error in nearbyplaces_chat: {str(e)}")
+        return { 
+            "filtered_results": df_filtered,
+            "error": str(e)
+        }
