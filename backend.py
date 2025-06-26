@@ -57,8 +57,43 @@ NO_OF_SPACES = os.getenv("NO_OF_SPACES")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
+def format_response_text(text: str) -> str:
+    """Format the response text for better display"""
+    if not text:
+        return text
+    
+    # Clean up the text
+    formatted = text
+    
+    # Fix FlexAI Features formatting
+    formatted = re.sub(r'FlexAI Features:\s*\*\s*', 'FlexAI Features:\n\n• ', formatted)
+    
+    # Convert bullet points to proper format
+    formatted = re.sub(r'\*\s+([^*\n]+)', r'• \1', formatted)
+    
+    # Add proper spacing around headings
+    formatted = re.sub(r'([A-Z][^:]*):(?!\s*\n)', r'**\1:**\n', formatted)
+    
+    # Fix numbered lists
+    formatted = re.sub(r'(\d+)\.\s+', r'\n\1. ', formatted)
+    
+    # Add line breaks before bullet points if they follow text
+    formatted = re.sub(r'([.!?])\s*•', r'\1\n\n•', formatted)
+    
+    # Clean up multiple spaces and line breaks
+    formatted = re.sub(r'\s+', ' ', formatted)
+    formatted = re.sub(r'\n\s*\n\s*\n', '\n\n', formatted)
+    
+    # Ensure proper spacing around features
+    formatted = re.sub(r'(Features?:)', r'\n\n**\1**\n', formatted, flags=re.IGNORECASE)
+    formatted = re.sub(r'(Benefits?:)', r'\n\n**\1**\n', formatted, flags=re.IGNORECASE)
+    
+    return formatted.strip()
+
 async def stream_reply_text(text: str):
-    words = text.split()
+    # Format the text before streaming
+    formatted_text = format_response_text(text)
+    words = formatted_text.split()
     for word in words:
         yield word + ' '
         await asyncio.sleep(0.05)  # adjust speed here
@@ -71,7 +106,11 @@ INITIAL_PROMPT = (
     "Answer the questions based on the provided document. But do not mention that the response is 'based on the document', just answer like a normal assistant."
     "Also have a friendly conversation with user. All questions will not be related to the document."
     "If the user query asked is not available within your domain knowledge then response should be - You can contact the operation team regarding this query at operations@stylework.city!"
-    "REQUIRED: Make sure the responses are displayed in a neat format - like the subheadings should be BOLD, unnecessary spaces/lines must be REMOVED, ADD bullet points where required etc."
+    "REQUIRED: Make sure the responses are displayed in a neat format with proper spacing and formatting:"
+    "- Use bullet points (•) for lists"
+    "- Use **bold** for headings and important terms"
+    "- Add proper line breaks between sections"
+    "- Remove unnecessary spaces and formatting issues"
     "Be concise and accurate."
     "IMPORTANT: Maintain continuity with previous messages"
 )
@@ -446,6 +485,12 @@ GENERAL_PROMPT = """
     Stylework is India's largest flexible workspace provider, offering a robust solution for businesses of various sizes. With a presence in 100+ cities in India, we connect individuals, startups, and enterprises to a diverse network of ready-to-move-in coworking and managed office spaces.
     If the user asks about booking, features, or the platform, offer to help or provide information.
     Do not answer workspace-specific queries here; only handle general conversation.
+    
+    IMPORTANT: Format your responses properly:
+    - Use bullet points (•) for lists
+    - Use **bold** for headings and important terms
+    - Add proper line breaks between sections
+    - Remove unnecessary spaces and formatting issues
 
     User message: {message}
     """
@@ -555,7 +600,11 @@ async def gemini_chat(
         "   - 'placeType' refers to the type of place user wants the workspace to be near by (cafe, restaurant, bank etc)\n"
         "9.If user mentions any words like 'office', 'coworking space', 'shared office', 'workspace', 'desk', 'cabin', 'private office', etc., consider it as a workspace search request unless they ask about the services provided - understand if the request is a question or a statement and then decide accordingly.\n\n"
         "10.If the user wants to BOOK a workspace - ask the user for details (such as name, email, number of seats required, joining date of space etc or any other appropriate details needed) - only after the user had requested to look for a workspace, if workspace request was not iniitalized then go for the request. After collecting the details mention that the details are sent to the operations team and they will contact the user soon regarding the workspace query."
-        "11.Make sure the responses are displayed in a neat format - like the subheadings should be bold, unnecessary spaces are removed, add bullet points where required etc."
+        "11.Make sure the responses are displayed in a neat format with proper spacing and formatting:"
+        "   - Use bullet points (•) for lists"
+        "   - Use **bold** for headings and important terms"
+        "   - Add proper line breaks between sections"
+        "   - Remove unnecessary spaces and formatting issues"
         "IMPORTANT: Any user query which is not in the 11 points functionality of the chatbot display the bot message - You can contact the operation team regarding this query at operations@stylework.city!"
         "IMPORTANT: Maintain continuity with previous messages. If the user refers to something mentioned earlier, use that context in your response.\n\n"
         f"User message: {user_message}\n"
@@ -783,7 +832,7 @@ async def gemini_chat(
             if df_filtered.empty:
                 recommendations_text = "\n\nSorry, I couldn't find any workspaces matching your criteria. You might want to try adjusting your requirements."
                 final_reply += recommendations_text
-                return {"reply": final_reply}
+                return StreamingResponse(stream_reply_text(final_reply), media_type="text/plain")
 
             # Check for location-based query (e.g., "show me day pass in delhi near a cafe")
             location_based_query = False
@@ -945,7 +994,7 @@ async def gemini_chat(
     last_msg = session.get_messages()[-1] if session.get_messages() else None
     timestamp = last_msg.get("timestamp") if last_msg else None
 
-    return {"reply": final_reply, "timestamp": timestamp}
+    return StreamingResponse(stream_reply_text(final_reply), media_type="text/plain")
 
 # Gemini agent for nearby places queries
 NEARBY_PROMPT = """

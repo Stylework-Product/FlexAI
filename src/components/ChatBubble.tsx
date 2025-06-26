@@ -18,6 +18,37 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   const [areaFilter, setAreaFilter] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [showAllAmenities, setShowAllAmenities] = useState<Record<number, boolean>>({});
+
+  // Function to format text properly
+  const formatText = (text: string): string => {
+    if (!text) return '';
+    
+    // Clean up the text first
+    let formatted = text
+      // Remove excessive whitespace
+      .replace(/\s+/g, ' ')
+      // Fix bullet points - convert * to proper markdown
+      .replace(/^\*\s+/gm, '• ')
+      // Convert numbered lists to proper format
+      .replace(/^(\d+)\.\s+/gm, '$1. ')
+      // Add proper line breaks before headings
+      .replace(/([.!?])\s*([A-Z][^:]*:)/g, '$1\n\n**$2**')
+      // Fix spacing around colons for subheadings
+      .replace(/([A-Za-z\s]+):\s*/g, '**$1:** ')
+      // Add line breaks before bullet points
+      .replace(/([.!?])\s*•/g, '$1\n• ')
+      // Add line breaks before numbered items
+      .replace(/([.!?])\s*(\d+\.)/g, '$1\n$2')
+      // Fix spacing around features/benefits
+      .replace(/Features?:\s*/gi, '\n\n**Features:**\n')
+      .replace(/Benefits?:\s*/gi, '\n\n**Benefits:**\n')
+      // Clean up multiple line breaks
+      .replace(/\n{3,}/g, '\n\n')
+      // Trim whitespace
+      .trim();
+
+    return formatted;
+  };
     
   const extractWorkspaceRecommendations = (text: string) => {
     const recommendations: any[] = [];
@@ -142,9 +173,8 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
     // Remove code blocks and JSON objects
     let cleaned = text.replace(/```[\s\S]*?```/g, '').replace(/\{[\s\S]*?\}/g, '');
     
-    // Remove excessive whitespace and empty lines
-    cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n'); // Replace multiple empty lines with double line break
-    cleaned = cleaned.replace(/^\s+|\s+$/g, ''); // Trim start and end
+    // Apply formatting
+    cleaned = formatText(cleaned);
     
     return cleaned;
   };
@@ -180,7 +210,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
     timestamp = new Date();
   }
 
-  // Custom markdown components for better formatting
+  // Enhanced markdown components for better formatting
   const markdownComponents = {
     // Main heading with large bullet
     h1: ({ children }: any) => (
@@ -192,68 +222,87 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
     
     // Subheading with medium bullet
     h2: ({ children }: any) => (
-      <h2 className="text-base font-semibold mb-1 mt-3 first:mt-0 pl-4 relative">
-        <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-blue-400 rounded-full"></span>
-        <span className="pl-2">{children}</span>
+      <h2 className="text-base font-semibold mb-2 mt-3 first:mt-0 text-gray-900">
+        {children}
       </h2>
     ),
     
     // Sub-subheading with small bullet
     h3: ({ children }: any) => (
-      <h3 className="text-sm font-medium mb-1 mt-2 pl-6 relative">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 w-1 h-1 bg-blue-300 rounded-full"></span>
-        <span className="pl-2">{children}</span>
+      <h3 className="text-sm font-medium mb-1 mt-2 text-gray-800">
+        {children}
       </h3>
     ),
     
-    // Regular paragraphs
-    p: ({ children }: any) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+    // Regular paragraphs with better spacing
+    p: ({ children }: any) => (
+      <p className="mb-3 last:mb-0 leading-relaxed text-gray-700">
+        {children}
+      </p>
+    ),
     
-    // Unordered lists with circular bullets
-    ul: ({ children }: any) => <ul className="mb-3 space-y-1">{children}</ul>,
+    // Unordered lists with proper spacing
+    ul: ({ children }: any) => (
+      <ul className="mb-4 space-y-2 pl-4">
+        {children}
+      </ul>
+    ),
     
     // List items with custom bullet points
-    li: ({ node, ...props }: any) => {
-      // Check if this is a direct child of ul (first level)
-      const isTopLevel = node?.parent?.tagName === 'ul' || node?.parent?.tagName === 'ol';
-      
-      return (
-        <li className="leading-relaxed flex items-start pl-4">
-          <span className="inline-block w-1.5 h-1.5 bg-gray-500 rounded-full mt-2 mr-2 flex-shrink-0"></span>
-          <div className="flex-1">
-            {props.children}
-          </div>
-        </li>
-      );
-    },
+    li: ({ children }: any) => (
+      <li className="leading-relaxed flex items-start">
+        <span className="inline-block w-1.5 h-1.5 bg-blue-500 rounded-full mt-2 mr-3 flex-shrink-0"></span>
+        <div className="flex-1 text-gray-700">
+          {children}
+        </div>
+      </li>
+    ),
     
     // Ordered lists with numbers
-    ol: ({ children }: any) => <ol className="mb-3 space-y-1">{children}</ol>,
+    ol: ({ children }: any) => (
+      <ol className="mb-4 space-y-2 pl-4 list-decimal list-inside">
+        {children}
+      </ol>
+    ),
     
-    // Bold text
-    strong: ({ children }: any) => <strong className="font-semibold text-gray-900">{children}</strong>,
+    // Bold text with better contrast
+    strong: ({ children }: any) => (
+      <strong className="font-semibold text-gray-900">
+        {children}
+      </strong>
+    ),
     
-    // Links
+    // Links with better styling
     a: ({ href, children }: any) => (
-      <a href={href} className="text-blue-600 hover:underline" target="_blank" rel="noopener noreferrer">
+      <a 
+        href={href} 
+        className="text-blue-600 hover:text-blue-800 hover:underline font-medium" 
+        target="_blank" 
+        rel="noopener noreferrer"
+      >
         {children}
       </a>
     ),
     
     // Blockquotes
     blockquote: ({ children }: any) => (
-      <blockquote className="border-l-4 border-gray-300 pl-4 py-1 my-2 text-gray-600">
+      <blockquote className="border-l-4 border-blue-300 pl-4 py-2 my-3 bg-blue-50 text-gray-700 italic">
         {children}
       </blockquote>
     ),
     
     // Code blocks
-    code: ({ children }: any) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">{children}</code>,
-    pre: ({ children }: any) => <pre className="bg-gray-100 p-3 rounded-lg overflow-x-auto text-sm font-mono mb-3">{children}</pre>,
+    code: ({ children }: any) => (
+      <code className="bg-gray-100 px-2 py-1 rounded text-sm font-mono text-gray-800">
+        {children}
+      </code>
+    ),
     
-    // Nested list items
-    'li > ul': ({ children }: any) => <ul className="ml-4 mt-1 space-y-1">{children}</ul>,
-    'li > ol': ({ children }: any) => <ol className="ml-4 mt-1 space-y-1 list-decimal">{children}</ol>
+    pre: ({ children }: any) => (
+      <pre className="bg-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono mb-4 border">
+        {children}
+      </pre>
+    ),
   };
 
   return (
@@ -273,7 +322,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
               isUser
                 ? 'bg-blue-500 text-white rounded-2xl rounded-tr-none'
                 : 'bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100'
-            } py-3 px-4 shadow-sm`}>
+            } py-4 px-5 shadow-sm`}>
               <div className="text-sm md:text-base break-words">
                 <ReactMarkdown 
                   remarkPlugins={[remarkGfm]}
@@ -283,7 +332,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
                 </ReactMarkdown>
               </div>
               {hasAttachments && (
-                <div className="mt-2 pt-2 border-t border-opacity-20 border-gray-200">
+                <div className="mt-3 pt-3 border-t border-opacity-20 border-gray-200">
                   {message.attachments?.map((file, index) => (
                     <div key={index} className="flex items-center text-xs">
                       <FileText size={14} className={isUser ? 'text-blue-100' : 'text-blue-500'} />
@@ -292,7 +341,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
                   ))}
                 </div>
               )}
-              <div className={`text-xs mt-2 ${isUser ? 'text-blue-100' : 'text-gray-400'}`}>
+              <div className={`text-xs mt-3 ${isUser ? 'text-blue-100' : 'text-gray-400'}`}>
                 {timestamp.toLocaleTimeString([], {
                   hour: '2-digit',
                   minute: '2-digit',
