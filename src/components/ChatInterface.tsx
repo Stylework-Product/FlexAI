@@ -25,6 +25,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 }) => {
   const [input, setInput] = useState('');
   const [showFileUpload, setShowFileUpload] = useState(false);
+  const [streamingMessage, setStreamingMessage] = useState('');
+  const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -33,10 +35,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [activeMessages]);
-
-  // Remove the duplicate session creation logic from ChatInterface
-  // Session should only be created in App.tsx or UserInfoForm.tsx
+  }, [activeMessages, streamingMessage]);
 
   const handleSendMessage = async () => {
     if (!input.trim() || !activeChat || !sessionReady) return;
@@ -55,10 +54,12 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           ? { ...chat, messages: [...chat.messages, newUserMessage] }
           : chat
       ),
-      isTyping: true,
+      isTyping: false,
     }));
 
     setInput('');
+    setIsStreaming(true);
+    setStreamingMessage('');
 
     try {
       const response = await fetch('http://127.0.0.1:8000/multimodal_agent', {
@@ -76,23 +77,64 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
       });
 
       if (!response.ok) throw new Error('Failed to get response');
-      const data = await response.json();
 
-      const botResponse: ChatMessage = {
-        type: 'assistant',
-        content: data.reply || "You can contact the operation team regarding this query at operations@stylework.city",
-        timestamp: data.timestamp ? new Date(data.timestamp) : new Date(),
-      };
+      // Check if response is streaming
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('text/plain')) {
+        // Handle streaming response
+        const reader = response.body?.getReader();
+        const decoder = new TextDecoder();
+        let accumulatedText = '';
 
-      setState(prev => ({
-        ...prev,
-        chats: prev.chats.map(chat =>
-          chat.id === activeChat
-            ? { ...chat, messages: [...chat.messages, botResponse] }
-            : chat
-        ),
-        isTyping: false,
-      }));
+        if (reader) {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            accumulatedText += chunk;
+            setStreamingMessage(accumulatedText);
+          }
+
+          // Once streaming is complete, add the final message
+          const botResponse: ChatMessage = {
+            type: 'assistant',
+            content: accumulatedText,
+            timestamp: new Date(),
+          };
+
+          setState(prev => ({
+            ...prev,
+            chats: prev.chats.map(chat =>
+              chat.id === activeChat
+                ? { ...chat, messages: [...chat.messages, botResponse] }
+                : chat
+            ),
+          }));
+
+          setStreamingMessage('');
+          setIsStreaming(false);
+        }
+      } else {
+        // Handle regular JSON response (fallback)
+        const data = await response.json();
+        const botResponse: ChatMessage = {
+          type: 'assistant',
+          content: data.reply || "You can contact the operation team regarding this query at operations@stylework.city",
+          timestamp: data.timestamp ? new Date(data.timestamp) : new Date(),
+        };
+
+        setState(prev => ({
+          ...prev,
+          chats: prev.chats.map(chat =>
+            chat.id === activeChat
+              ? { ...chat, messages: [...chat.messages, botResponse] }
+              : chat
+          ),
+        }));
+
+        setIsStreaming(false);
+      }
     } catch (error) {
       console.error('Chat error:', error);
 
@@ -113,8 +155,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               }
             : chat
         ),
-        isTyping: false,
       }));
+
+      setIsStreaming(false);
+      setStreamingMessage('');
     }
   };
 
@@ -177,8 +221,28 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
           {activeMessages.map((message, idx) => (
             <ChatBubble key={idx} message={message} />
           ))}
-          {isTyping && (
+          
+          {/* Streaming message bubble */}
+          {isStreaming && streamingMessage && (
             <div className="flex items-start max-w-[80%] md:max-w-[70%]">
+              <div className="flex-shrink-0 rounded-full p-2 bg-teal-600 mr-2">
+                <Bot size={16} className="text-white" />
+              </div>
+              <div className="bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 py-3 px-4 shadow-sm">
+                <div className="text-sm md:text-base break-words">
+                  {streamingMessage}
+                  <span className="inline-block w-2 h-5 bg-gray-400 ml-1 animate-pulse"></span>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          {/* Typing indicator */}
+          {(isTyping || isStreaming) && !streamingMessage && (
+            <div className="flex items-start max-w-[80%] md:max-w-[70%]">
+              <div className="flex-shrink-0 rounded-full p-2 bg-teal-600 mr-2">
+                <Bot size={16} className="text-white" />
+              </div>
               <div className="bg-white rounded-2xl rounded-tl-none py-3 px-4 shadow-sm">
                 <div className="flex space-x-1">
                   <div className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" />
@@ -208,8 +272,8 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         <div className="max-w-3xl mx-auto flex items-end">
           <button
             onClick={() => setShowFileUpload(true)}
-            disabled={!sessionReady}
-            className="p-3 rounded-full hover:bg-gray-100 transition-colors mr-2 text-gray-500 hover:text-blue-500"
+            disabled={!sessionReady || isStreaming}
+            className="p-3 rounded-full hover:bg-gray-100 transition-colors mr-2 text-gray-500 hover:text-blue-500 disabled:opacity-50"
             aria-label="Upload file"
           >
             <FileUp size={20} />
@@ -219,17 +283,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
             <input
               type="text"
               value={input}
-              disabled={!sessionReady}
+              disabled={!sessionReady || isStreaming}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type your message here..."
+              placeholder={isStreaming ? "FlexAI is responding..." : "Type your message here..."}
               className="w-full rounded-full py-3 px-4 pr-12 border border-gray-300 disabled:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
               onClick={handleSendMessage}
-              disabled={!input.trim() || !sessionReady}
+              disabled={!input.trim() || !sessionReady || isStreaming}
               className={`absolute right-3 top-1/2 transform -translate-y-1/2 p-1.5 rounded-full ${
-                input.trim() && sessionReady
+                input.trim() && sessionReady && !isStreaming
                   ? 'bg-blue-500 text-white'
                   : 'bg-gray-200 text-gray-400'
               } focus:outline-none`}
@@ -244,4 +308,4 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   );
 };
 
-export default ChatInterface; 
+export default ChatInterface;
