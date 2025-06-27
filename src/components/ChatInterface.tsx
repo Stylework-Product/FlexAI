@@ -29,16 +29,36 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
   const [isStreaming, setIsStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const shouldFocusInput = useRef(true);
 
   const sessionReady = Boolean(sessionId && user_Id);
   const activeMessages = chats.find(chat => chat.id === activeChat)?.messages || [];
 
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [activeMessages, streamingMessage]);
 
+  // Focus input when component mounts and when active chat changes
+  useEffect(() => {
+    if (shouldFocusInput.current && inputRef.current && !inputRef.current.disabled) {
+      inputRef.current.focus();
+    }
+  }, [activeChat, sessionReady, isStreaming]);
+  
+  // Focus input after streaming ends
+  useEffect(() => {
+    if (!isStreaming && inputRef.current && !inputRef.current.disabled) {
+      inputRef.current.focus();
+    }
+  }, [isStreaming]);
+
   const handleSendMessage = async () => {
-    if (!input.trim() || !activeChat || !sessionReady) return;
+    if (!input.trim() || !activeChat || !sessionReady) {
+      inputRef.current?.focus();
+      return;
+    }
 
     const now = new Date();
     const newUserMessage: ChatMessage = {
@@ -114,6 +134,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
           setStreamingMessage('');
           setIsStreaming(false);
+          // Focus will be handled by the isStreaming effect
         }
       } else {
         // Handle regular JSON response (fallback)
@@ -134,6 +155,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
         }));
 
         setIsStreaming(false);
+        setStreamingMessage('');
+        // Focus input after bot response is complete
+        shouldFocusInput.current = true;
+        inputRef.current?.focus();
       }
     } catch (error) {
       console.error('Chat error:', error);
@@ -281,16 +306,30 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
 
           <div className="flex-1 relative">
             <input
+              ref={inputRef}
               type="text"
               value={input}
               disabled={!sessionReady || isStreaming}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
+              onBlur={(e) => {
+                // Only refocus if the blur was not caused by disabling the input or clicking a button
+                if (!e.relatedTarget && !(!sessionReady || isStreaming)) {
+                  shouldFocusInput.current = true;
+                  inputRef.current?.focus();
+                }
+              }}
+              onFocus={() => {
+                shouldFocusInput.current = true;
+              }}
               placeholder={isStreaming ? "FlexAI is responding..." : "Type your message here..."}
               className="w-full rounded-full py-3 px-4 pr-12 border border-gray-300 disabled:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <button
-              onClick={handleSendMessage}
+              onClick={(e) => {
+                shouldFocusInput.current = false;
+                handleSendMessage();
+              }}
               disabled={!input.trim() || !sessionReady || isStreaming}
               className={`absolute right-3 top-1/2 transform -translate-y-1/2 p-1.5 rounded-full ${
                 input.trim() && sessionReady && !isStreaming
