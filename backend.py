@@ -45,7 +45,6 @@ app.add_middleware(
 load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-KRUTRIM_MAPS_API_KEY = os.getenv("KRUTRIM_MAPS_API_KEY")
 MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES"))
 MIN_SIMILARITY_SCORE = float(os.getenv("MIN_SIMILARITY_SCORE"))
 SHEET_API_KEY = os.getenv("SHEET_API_KEY")
@@ -57,47 +56,13 @@ NO_OF_SPACES = os.getenv("NO_OF_SPACES")
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-def format_response_text(text: str) -> str:
-    """Format the response text for better display"""
-    if not text:
-        return text
-    
-    # Clean up the text
-    formatted = text
-    
-    # Fix FlexAI Features formatting
-    formatted = re.sub(r'FlexAI Features:\s*\*\s*', 'FlexAI Features:\n\n• ', formatted)
-    
-    # Convert bullet points to proper format
-    formatted = re.sub(r'\*\s+([^*\n]+)', r'• \1', formatted)
-    
-    # Add proper spacing around headings
-    formatted = re.sub(r'([A-Z][^:]*):(?!\s*\n)', r'**\1:**\n', formatted)
-    
-    # Fix numbered lists
-    formatted = re.sub(r'(\d+)\.\s+', r'\n\1. ', formatted)
-    
-    # Add line breaks before bullet points if they follow text
-    formatted = re.sub(r'([.!?])\s*•', r'\1\n\n•', formatted)
-    
-    # Clean up multiple spaces and line breaks
-    formatted = re.sub(r'\s+', ' ', formatted)
-    formatted = re.sub(r'\n\s*\n\s*\n', '\n\n', formatted)
-    
-    # Ensure proper spacing around features
-    formatted = re.sub(r'(Features?:)', r'\n\n**\1**\n', formatted, flags=re.IGNORECASE)
-    formatted = re.sub(r'(Benefits?:)', r'\n\n**\1**\n', formatted, flags=re.IGNORECASE)
-    
-    return formatted.strip()
+async def animate(text: str):
+    for char in text:
+        yield char
+        await asyncio.sleep(0.005)  # adjust speed here
 
-async def stream_reply_text(text: str):
-    # Format the text before streaming
-    formatted_text = format_response_text(text)
-    words = formatted_text.split()
-    for word in words:
-        yield word + ' '
-        await asyncio.sleep(0.05)  # adjust speed here
-
+def print_text_animated(text: str):
+    return StreamingResponse(animate(text), media_type="text/plain")
 
 # Gemini set up for pdf document answering
 INITIAL_PROMPT = (
@@ -114,8 +79,9 @@ INITIAL_PROMPT = (
     "Be concise and accurate."
     "IMPORTANT: Maintain continuity with previous messages"
 )
+
 class GeminiLLM(LLM):
-    model: str = "models/gemini-1.5-flash"
+    model: str = "models/gemini-2.0-flash-lite"
     initial_prompt: str = INITIAL_PROMPT
     
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
@@ -374,7 +340,7 @@ def format_workspace_recommendations(result: List[Dict[str, Any]]) -> str:
 GEMINI_ROUTER_PROMPT = """
     You are a router assistant. Given a user message, decide if it is about:
     - "pdf" → if the question refers to anything about the company or functionalities (eg what is fixed memebership, what is flex ai, what are the functionalities of ai etc.).
-    - "workspace" → if it refers to workspace booking, location, budget, seats, coworking, offices, pricing etc.
+    - "workspace" → if it refers to workspace booking, area, city, location, budget, seats, coworking, offices, pricing etc.
     - "general" → if it's a general conversation or unrelated (greeting, jokes, questions about you, etc.)
 
     Only return one of the following exact outputs: "pdf", "workspace", or "general".
@@ -385,7 +351,7 @@ GEMINI_ROUTER_PROMPT = """
 
 def classify_intent_with_gemini(user_message: str) -> str:
     try:
-        router_model = genai.GenerativeModel("gemini-1.5-flash")
+        router_model = genai.GenerativeModel("gemini-2.0-flash-lite")
         prompt = GEMINI_ROUTER_PROMPT.format(message=user_message.strip())
         response = router_model.generate_content(prompt)
         intent = response.text.strip().lower()
@@ -411,7 +377,7 @@ async def multimodal_agent_router(
     elif intent == "workspace":
         return await gemini_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
     else:
-        return await gemini_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
+        return await general_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
 
 @app.post("/pdf_chat")
 async def pdf_chat(
@@ -476,18 +442,16 @@ async def pdf_chat(
     if not reply_text or len(reply_text.strip()) < 3:
         reply_text = "You can contact the operation team regarding this query at operations@stylework.city!"
     print(f"[DEBUG] Gemini Response: {reply_text}")
-    return StreamingResponse(stream_reply_text(reply_text), media_type="text/plain")
+    return print_text_animated(reply_text)
     #return {"reply": reply_text, "session_id": session_id, "user_id": user_id, "timestamp": timestamp, "chat_history": session.get_messages() if session else []}
 
 # setup for the general gemini model
 GENERAL_PROMPT = """
     You are FlexAI, a friendly assistant for Styleworks. Greet users, answer general questions, and guide them towards workspace booking or learning about Styleworks and Flexboard features.
-    Stylework is India's largest flexible workspace provider, offering a robust solution for businesses of various sizes. With a presence in 100+ cities in India, we connect individuals, startups, and enterprises to a diverse network of ready-to-move-in coworking and managed office spaces.
     If the user asks about booking, features, or the platform, offer to help or provide information.
     Do not answer workspace-specific queries here; only handle general conversation.
     
     IMPORTANT: Format your responses properly:
-    - Use bullet points (•) for lists
     - Use **bold** for headings and important terms
     - Add proper line breaks between sections
     - Remove unnecessary spaces and formatting issues
@@ -496,7 +460,7 @@ GENERAL_PROMPT = """
     """
 
 @app.post("/general_chat")
-def general_chat(
+async def general_chat(
     user_message: str = Body(..., embed=True),
     chat_history: list = Body([], embed=True),
     session_id: Optional[str] = Body(None, embed=True),
@@ -509,7 +473,7 @@ def general_chat(
     if session is None and session_id:
         return {"error": f"Session {session_id} not found. Please create a new session."}
 
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash-lite")
     prompt = GENERAL_PROMPT.format(message=user_message.strip())
 
     chat_sdk_history = []
@@ -536,7 +500,8 @@ def general_chat(
     else:
         timestamp = None
 
-    return {"reply": reply_text, "timestamp": timestamp}
+    return print_text_animated(reply_text)
+    #return {"reply": reply_text, "timestamp": timestamp}
 
 # setup for the recommendation gemini model
 @app.post("/gemini_chat")
@@ -574,7 +539,7 @@ async def gemini_chat(
         "2. DO NOT mention specific workspace names, addresses, or details\n"
         "3. DO NOT provide any workspace recommendations in your response\n"
         "4. Your ONLY job is to:\n"
-        "	- Have a friendly conversation with the user. While having friendly conversation do not include JSON in your reply as it is not a workspace query.\n"
+        "	- Have a friendly conversation with the user like basic greetings, conversation etc. While having friendly conversation do not include JSON in your reply as it is not a workspace query.\n"
         "	- Extract the following information and format as JSON: workspaceName, city, area, workspaceType (options: day pass, flexi desk, dedicated desk, private cabin), size, amenities (list), bundle (also called category) (list - options: standard, silver, gold, platinum, platinum+), budget, rating, offeringType (options: day pass, flexi desk, dedicated desk, private cabin), placeType (cafe, resturant, bank etc.)\n"
         "	- Answer users' questions about the platform and the recommendations provided (eg if they ask about what amenities are provided by a specific workspace or the price of a workspace you should be able to answer it based on the information provided) and this is NOT a request for recommendation engine.\n"
         "	- Extract search parameters from their message\n"
@@ -631,7 +596,7 @@ async def gemini_chat(
     filtered_history = [msg for msg in chat_history if msg.get("sender") == "user"]
 
     try:
-        gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+        gemini_model = genai.GenerativeModel("gemini-2.0-flash-lite")
 
         # Build Gemini SDK-compatible chat history
         chat_sdk_history = [
@@ -832,7 +797,7 @@ async def gemini_chat(
             if df_filtered.empty:
                 recommendations_text = "\n\nSorry, I couldn't find any workspaces matching your criteria. You might want to try adjusting your requirements."
                 final_reply += recommendations_text
-                return StreamingResponse(stream_reply_text(final_reply), media_type="text/plain")
+                return print_text_animated(final_reply)
 
             # Check for location-based query (e.g., "show me day pass in delhi near a cafe")
             location_based_query = False
@@ -847,7 +812,7 @@ async def gemini_chat(
                 print(f"Workspace type: {workspace_type}, City: {city}, Place type: {place_type}")
                 response = await nearbyplaces_chat(user_message, df_filtered, chat_history, session_id, user_id, place_type)
                 df_filtered = response["filtered_results"]
-                print(df_filtered.head(10).to_string(max_colwidth=200, max_rows=None, max_cols=None))
+                #print(df_filtered.head(10).to_string(max_colwidth=200, max_rows=None, max_cols=None))
 
             # --- Feature similarity calculations (always use all available features) ---
             similarities_list = []
@@ -994,13 +959,14 @@ async def gemini_chat(
     last_msg = session.get_messages()[-1] if session.get_messages() else None
     timestamp = last_msg.get("timestamp") if last_msg else None
 
-    return StreamingResponse(stream_reply_text(final_reply), media_type="text/plain")
+    return {"reply": final_reply, "timestamp": timestamp}
+    
 
 # Gemini agent for nearby places queries
 NEARBY_PROMPT = """
 You are a helpful assistant that helps users find workspaces based on nearby places like cafes, restaurants, etc.
 Your task is to analyze the user's query and determine:
-1. Filter the workspaces based on the place type - using your own intellegence
+1. Filter the workspaces based on the place type - using your own intellegence within 1km radius
 
 Eg. There are multiple workspaces in df_filtered, if the place_type is "cafe", then filter the workspaces on the basis that which workspaces are closer to a cafe. So, return the workspaces that are closer to a cafe.
 
@@ -1059,7 +1025,7 @@ IMPORTANT: Use the data from the dataset ONLY
 
 NEARBY_PLACES_PROMPT = """
 You are a helpful assistant that helps users find workspaces based on nearby places like cafes, restaurants, etc.
-Your task is to analyze the user's query and identify only the workspace names from the dataset that are near the given place type.
+Your task is to analyze the user's query and identify only the workspace names from the dataset that are near the given place type within 500m radius.
 
 Respond with a JSON array of strings like: [Space Name 1, Space Name 2, .....]
 
@@ -1067,24 +1033,25 @@ Eg - User queries: Show me day pass in delhi near a cafe
 ["Innov8 Connaught Place", "91springboard Nehru Place"]
 
 IMPORTANT: Use only the data from the dataset provided.
+IMPORTANT: Maintain contunuity with previous messages.
 
 """
 
-async def parse_nearby_workspace(query: str, place_type: str, df_filtered: List[Dict]) -> Dict[str, Any]:
+async def parse_nearby_workspace(query: str, place_type: str, df_filtered: List[Dict], chat_history: List[Dict]) -> Dict[str, Any]:
     """Parse the workspaces about nearby places using Gemini."""
     try:
         # Initialize Gemini model
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash-lite')
         
         # Create the prompt
         prompt = f"""{NEARBY_PLACES_PROMPT}
         
         User query: {query}
-
         Place type: {place_type}
-
         Dataset: {df_filtered}
-        
+        Maintain continuity with previous messages
+        Chat History: {chat_history}
+
         Respond with only the JSON array, no other text:"""
         
         # Get response from Gemini
@@ -1093,8 +1060,8 @@ async def parse_nearby_workspace(query: str, place_type: str, df_filtered: List[
 
         if response_text.startswith('```json'):
             response_text = response_text[response_text.find('['):response_text.rfind(']')+1]
-        
         result = json.loads(response_text)
+        print("[DEBUG] result: ", result)
         return result
     except Exception as e:
         print(f"Error parsing nearby query: {str(e)}")
@@ -1115,7 +1082,7 @@ async def nearbyplaces_chat(
     """
     try:
         # Parse the user's query using Gemini
-        filtered_results = await parse_nearby_workspace(user_message, place_type, df_filtered)
+        filtered_results = await parse_nearby_workspace(user_message, place_type, df_filtered, chat_history)
         
         if not filtered_results:
             return {
