@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ChatMessage } from '../types';
-import { FileText, User, Bot, Star, Users, Package, MapPinned, Filter, ChevronDown, BadgePercent } from 'lucide-react';
+import { FileText, User, Bot, Star, Users, Package, MapPinned, Filter, ChevronDown, BadgePercent, ExternalLink } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -18,7 +18,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   const [areaFilter, setAreaFilter] = useState<string>('all');
   const [showFilters, setShowFilters] = useState(false);
   const [showAllAmenities, setShowAllAmenities] = useState<Record<number, boolean>>({});
-    
+  
   const extractWorkspaceRecommendations = (text: string) => {
     const recommendations: any[] = [];
     const lines = text.split('\n');
@@ -74,9 +74,29 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
     return recommendations;
   };
 
+  // Extract Stylework URL from message content
+  const extractStyleworkUrl = (text: string): string | null => {
+    const urlMatch = text.match(/🔗\s*\*\*Browse more options:\*\*\s*(https?:\/\/[^\s\n]+)/);
+    return urlMatch ? urlMatch[1] : null;
+  };
+
   let recommendationsTextToUse = message.content;
   const workspaceRecommendations = !isUser ? extractWorkspaceRecommendations(recommendationsTextToUse) : [];
   const hasRecommendations = workspaceRecommendations.length > 0;
+  const styleworkUrl = !isUser ? extractStyleworkUrl(recommendationsTextToUse) : null;
+
+  // Auto-open Stylework URL when recommendations are shown
+  useEffect(() => {
+    if (styleworkUrl && hasRecommendations) {
+      // Small delay to ensure the message is fully rendered
+      const timer = setTimeout(() => {
+        console.log(`[DEBUG] Auto-opening Stylework URL: ${styleworkUrl}`);
+        window.open(styleworkUrl, '_blank', 'noopener,noreferrer');
+      }, 1000);
+
+      return () => clearTimeout(timer);
+    }
+  }, [styleworkUrl, hasRecommendations]);
 
   // Area extraction: use only the 'area' field from the workspace object
   const extractAreaFromWorkspace = (workspace: any): string[] => {
@@ -130,6 +150,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
     return filtered;
   }, [workspaceRecommendations, priceSort, ratingSort, areaFilter]);
   
+  // Split content to separate intro from recommendations and URL
   const [introText = '', recommendationsText = ''] = (recommendationsTextToUse || '').split('\n\nHere are some workspace recommendations for you:');
 
   // Check if similarity scores are present in the recommendations text
@@ -139,8 +160,11 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   const cleanIntroText = (text: string): string => {
     if (!text) return '';
     
-    // Remove code blocks and JSON objects
-    let cleaned = text.replace(/```[\s\S]*?```/g, '').replace(/\{[\s\S]*?\}/g, '');
+    // Remove code blocks, JSON objects, and Stylework URL section
+    let cleaned = text
+      .replace(/```[\s\S]*?```/g, '')
+      .replace(/\{[\s\S]*?\}/g, '')
+      .replace(/🔗\s*\*\*Browse more options:\*\*\s*https?:\/\/[^\s\n]+/g, '');
     
     // Remove excessive whitespace and empty lines
     cleaned = cleaned.replace(/\n\s*\n\s*\n/g, '\n\n'); // Replace multiple empty lines with double line break
@@ -298,6 +322,30 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
                   minute: '2-digit',
                 })}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Stylework URL Button */}
+      {styleworkUrl && hasRecommendations && (
+        <div className="ml-12">
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <ExternalLink size={20} className="text-blue-600 mr-3" />
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-1">Browse More Options</h3>
+                  <p className="text-sm text-gray-600">Explore additional workspaces on Stylework.city</p>
+                </div>
+              </div>
+              <button
+                onClick={() => window.open(styleworkUrl, '_blank', 'noopener,noreferrer')}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center gap-2"
+              >
+                Open Website
+                <ExternalLink size={16} />
+              </button>
             </div>
           </div>
         </div>
