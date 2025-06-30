@@ -1,0 +1,124 @@
+WORKSPACE_TYPE_SLUG = {
+    "day pass": "day-pass",
+    "meeting room": "meeting-rooms",
+    "private cabin": "private-office-cabin",
+    "dedicated desk": "dedicated-desk",
+    "open desk": "open-desk",
+    "virtual office": "virtual-office"
+}
+
+VALID_CITIES = {
+    "agartala", "agra", "ahmedabad", "ajmer", "akola", "ambala", "amritsar", "anand", "ankleshwar", 
+    "balasinor", "bareilly", "bengaluru", "bhagalpur", "bhopal", "bhubaneshwar", "chakpachuria", 
+    "chandigarh", "chennai", "chittoor", "coimbatore", "deesa", "dehradun", "delhi nct", "dhanbad", 
+    "dharamshala", "dhule", "dimapur", "dubai", "durg", "east godavari", "east khasi hills", 
+    "ernakulam", "faridabad", "gautam buddha nagar", "ghaziabad", "goa", "gorakhpur", "guntur", 
+    "gurgaon", "guwahati", "gwalior", "hyderabad", "imphal west", "indore", "jabalpur", "jaipur", 
+    "jalandhar", "jammu", "jamshedpur", "jodhpur", "kakkanad", "kanpur nagar", "kochi", "kolkata", 
+    "kothaguda", "kottayam", "kozhikode", "kurnool", "lucknow", "ludhiana", "madurai", "mangalore", 
+    "mohali", "mumbai", "mysuru (mysore)", "nagpur", "nandurbar", "nashik", "navi mumbai", "noida", 
+    "palakkad", "panaji", "panchkula", "patna", "pondicherry", "prayagraj", "pune", "raipur", 
+    "rajkot", "ranchi", "ratlam", "sahibzada ajit singh nagar (mohali)", "salem", "sangli", "sikar", 
+    "siliguri", "surat", "thane", "thiruvananthapuram", "tiruchirappalli", "udaipur", "ujjain", 
+    "vadodara", "varanasi", "vellore", "vijayawada", "visakhapatnam", "warangal (urban)", "zirakpur"
+}
+
+CATEGORY_IDS = {
+    "standard": "63c8ef67b593488ed624bff4",
+    "silver": "63c8ef6eb593488ed624bff5",
+    "gold": "63c8ef74b593488ed624bff6",
+    "platinum": "63c8ef7ab593488ed624bff7",
+    "platinum+": "659c22a8c5737f2fe35d0d37"
+}
+
+SORT_BY_PRICE = {
+    "low to high": "Price%20(Low%20to%20High)",
+    "high to low": "Price%20(High%20to%20Low)"
+}
+
+def get_day_pass_budget(budget):
+    """Map the given budget to the nearest lower day pass price point"""
+    if budget < 200:
+        return None
+    elif 200 <= budget < 400:
+        return 200
+    elif 400 <= budget < 600:
+        return 400
+    elif 600 <= budget < 800:
+        return 600
+    elif 800 <= budget < 1000:
+        return 800
+    elif 1000 <= budget < 1200:
+        return 1000
+    elif 1200 <= budget < 1400:
+        return 1200
+    elif 1400 <= budget < 1600:
+        return 1400
+    elif 1600 <= budget < 1800:
+        return 1600
+    elif 1800 <= budget <= 2000:
+        return 1800
+    else:
+        return 2000  # For budgets above 2000, return 2000
+
+def get_space_budget(budget):
+    """Map the given budget to the nearest lower space budget price point"""
+    if budget < 3000:
+        return None
+    elif 3000 <= budget < 6000:
+        return 3000
+    elif 6000 <= budget < 9000:
+        return 6000
+    elif 9000 <= budget < 12000:
+        return 9000
+    elif 12000 <= budget < 15000:
+        return 12000
+    elif 15000 <= budget < 18000:
+        return 15000
+    elif 18000 <= budget <= 20000:
+        return 18000
+    else:
+        return 20000  # For budgets above 20000, return 20000
+
+def generate_stylework_url(city, workspace_type, bundle, sort_by_price, budget):
+    """Generate Stylework.city URL based on extracted information"""
+    city_slug = city.lower().replace(' ', '-')
+    if workspace_type == "private cabin":
+        type_slug = "private-office-cabins"
+    else:
+        type_slug = workspace_type.lower().replace(' ', '-')
+
+    if not type_slug or not city_slug:
+        return ""
+    
+    base_url = f"https://www.stylework.city/{type_slug}/{city_slug}"
+    
+    params = []
+    
+    if bundle:
+        for category in bundle:
+            category_id = CATEGORY_IDS.get(category)
+            if category_id:
+                params.append(f"category={category_id}")
+    if budget is not None:
+        if workspace_type == "day pass":
+            budget_range = get_day_pass_budget(budget)
+        else:
+            budget_range = get_space_budget(budget)
+            
+        if budget_range is not None:
+            params.append(f"budget={budget_range}")
+    # Add sort preference
+    if sort_by_price:
+        sort_param = SORT_BY_PRICE.get("low to high")
+        if sort_param:
+            params.append(f"sortBy={sort_param}")
+    
+    # Combine URL with parameters
+    if params:
+        base_url += "?" + "&".join(params)
+    
+    return base_url
+
+url = generate_stylework_url("delhi nct", "day pass", ["standard", "silver"], False, 300)
+print(url)

@@ -85,6 +85,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
   const hasRecommendations = workspaceRecommendations.length > 0;
   const styleworkUrl = !isUser ? extractStyleworkUrl(recommendationsTextToUse) : null;
 
+  /*
   // Auto-open Stylework URL when recommendations are shown
   useEffect(() => {
     if (styleworkUrl && hasRecommendations) {
@@ -97,6 +98,7 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
       return () => clearTimeout(timer);
     }
   }, [styleworkUrl, hasRecommendations]);
+  */
 
   // Area extraction: use only the 'area' field from the workspace object
   const extractAreaFromWorkspace = (workspace: any): string[] => {
@@ -327,30 +329,6 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
         </div>
       )}
       
-      {/* Stylework URL Button */}
-      {styleworkUrl && hasRecommendations && (
-        <div className="ml-12">
-          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4 mb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center">
-                <ExternalLink size={20} className="text-blue-600 mr-3" />
-                <div>
-                  <h3 className="font-semibold text-gray-900 mb-1">Browse More Options</h3>
-                  <p className="text-sm text-gray-600">Explore additional workspaces on Stylework.city</p>
-                </div>
-              </div>
-              <button
-                onClick={() => window.open(styleworkUrl, '_blank', 'noopener,noreferrer')}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center gap-2"
-              >
-                Open Website
-                <ExternalLink size={16} />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      
       {/* Filter Controls */}
       {hasRecommendations && workspaceRecommendations.length > 0 && filteredAndSortedRecommendations.length > 0 && (
         <div className="ml-12">
@@ -535,6 +513,30 @@ const ChatBubble: React.FC<ChatBubbleProps> = ({ message }) => {
               <p className="text-sm">Try adjusting your filter criteria or clearing all filters.</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Stylework URL Button */}
+      {styleworkUrl && hasRecommendations && (
+        <div className="ml-12">
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <ExternalLink size={20} className="text-blue-600 mr-3" />
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-1">Browse More Options</h3>
+                  <p className="text-sm text-gray-600">Explore additional workspaces on Stylework.city</p>
+                </div>
+              </div>
+              <button
+                onClick={() => window.open(styleworkUrl, '_blank', 'noopener,noreferrer')}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm flex items-center gap-2"
+              >
+                Open Website
+                <ExternalLink size={16} />
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
