@@ -50,7 +50,7 @@ INITIAL_PROMPT = (
 )
  
 class GeminiLLM(LLM):
-    model: str = "models/gemini-2.0-flash-lite"
+    model: str = "models/gemini-1.5-flash"
     initial_prompt: str = INITIAL_PROMPT
     
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:

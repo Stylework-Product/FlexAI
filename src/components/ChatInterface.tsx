@@ -3,6 +3,7 @@ import { AppState, ChatMessage, UserInfo, Chat } from '../types';
 import { Send, FileUp, User, Bot } from 'lucide-react';
 import ChatBubble from './ChatBubble';
 import FileUpload from './FileUpload';
+import ReactMarkdown from 'react-markdown';
  
 interface ChatInterfaceProps {
   userInfo: UserInfo;
@@ -255,7 +256,11 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
               </div>
               <div className="bg-white text-gray-800 rounded-2xl rounded-tl-none border border-gray-100 py-3 px-4 shadow-sm">
                 <div className="text-sm md:text-base break-words">
-                  {streamingMessage}
+                  <ReactMarkdown components = {{
+                    p: ({children}) => <span>{children}</span>
+                  }}>
+                    {streamingMessage}
+                  </ReactMarkdown>
                   <span className="inline-block w-2 h-5 bg-gray-400 ml-1 animate-pulse"></span>
                 </div>
               </div>

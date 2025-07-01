@@ -87,7 +87,7 @@ else:
 GEMINI_ROUTER_PROMPT = """
     You are a router assistant. Given a user message, decide if it is about:
     - "pdf" → if the question refers to anything about the company Stylework or functionalities (eg what is fixed memebership, what is flex ai, what are the features of flexboard etc.).
-    - "workspace" → if it refers to workspace booking, area, city, location, budget, seats, coworking, offices, pricing etc.
+    - "workspace" → if it refers to workspace booking, area, city, location, budget, seats, coworking, offices, pricing etc. Any city name, area name, type of workspace should be classified as workspace.
     - "general" → if it's a general conversation or unrelated (greeting, jokes, questions about you, etc.)
 
     Only return one of the following exact outputs: "pdf", "workspace", or "general".
@@ -98,7 +98,7 @@ GEMINI_ROUTER_PROMPT = """
 
 def classify_intent_with_gemini(user_message: str) -> str:
     try:
-        router_model = genai.GenerativeModel("gemini-2.0-flash-lite")
+        router_model = genai.GenerativeModel("gemini-1.5-flash")
         prompt = GEMINI_ROUTER_PROMPT.format(message=user_message.strip())
         response = router_model.generate_content(prompt)
         intent = response.text.strip().lower()

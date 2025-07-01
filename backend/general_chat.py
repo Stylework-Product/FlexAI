@@ -58,7 +58,7 @@ async def general_chat(
         return {"error": f"Session {session_id} not found. Please create a new session."}
 
     # initialize gemini model for general chat
-    model = genai.GenerativeModel("gemini-2.0-flash-lite")
+    model = genai.GenerativeModel("gemini-1.5-flash")
     prompt = GENERAL_PROMPT.format(message=user_message.strip())
 
     # prepare and store messages in chat history
