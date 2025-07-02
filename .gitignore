@@ -25,15 +25,3 @@ dist-ssr
 .venv4
 .venv3
 .bolt
-
-
-backend.txt
-connection_app.txt
-connection.txt
-embedding_manager.txt
-embeddings.txt
-main.txt
-temp.txt
-app.py
-
-services_account.json

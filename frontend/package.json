@@ -12,6 +12,7 @@
     "backend": "python3 -m uvicorn backend.main:app --reload"
   },
   "dependencies": {
+    "@vercel/speed-insights": "^1.2.0",
     "axios": "^1.9.0",
     "lucide-react": "^0.344.0",
     "react": "^18.0.0",

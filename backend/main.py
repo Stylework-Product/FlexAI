@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import os
 import requests
+import uvicorn
 from connection import ChatSession, create_new_session, get_existing_session
 from dotenv import load_dotenv
 from google import generativeai
@@ -125,3 +126,7 @@ async def multimodal_agent_router(
         return await gemini_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
     else:
         return await general_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 8000))  # Render sets this
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
