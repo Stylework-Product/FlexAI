@@ -10,7 +10,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "backend": "python3 -m uvicorn gemini:app --reload"
+    "backend": "python3 -m uvicorn backend.main:app --reload"
   },
   "dependencies": {
     "axios": "^1.9.0",
