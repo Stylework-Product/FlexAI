@@ -4,6 +4,16 @@ import { Send, FileUp, User, Bot } from 'lucide-react';
 import ChatBubble from './ChatBubble';
 import FileUpload from './FileUpload';
 import ReactMarkdown from 'react-markdown';
+
+// Add this declaration to fix the import.meta.env error
+interface ImportMetaEnv {
+  readonly VITE_API_URL: string;
+  // add other env variables here if needed
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
+}
  
 interface ChatInterfaceProps {
   userInfo: UserInfo;
@@ -83,7 +93,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setStreamingMessage('');
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/multimodal_agent', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/multimodal_agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
