@@ -33,3 +33,5 @@ services:
         value: 1AU6IsvaTs8f66YxntcDtmeWp0svlsowy
       - key: folder_id
         value: 159IIuPpsDkQ7Kc-R3QMNMXcz3L4ljWNi
+      - key: GOOGLE_DRIVE_API
+        value: service_account.json
