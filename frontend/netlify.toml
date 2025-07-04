@@ -6,3 +6,4 @@
   from = "/api/*"
   to = "https://flexai-1l37.onrender.com/api/:splat"
   status = 200
+  force = true

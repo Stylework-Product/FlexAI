@@ -91,9 +91,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({
     setInput('');
     setIsStreaming(true);
     setStreamingMessage('');
-
+    const API_BASE = import.meta.env.VITE_API_URL
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/multimodal_agent`, {
+      const response = await fetch(`${API_BASE}/multimodal_agent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
