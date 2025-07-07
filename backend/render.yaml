@@ -12,7 +12,7 @@ services:
       - key: GEMINI_API_KEY
         value: AIzaSyB93mrPVEi8hyA8F03qfDSz21bU2fBEatA
       - key: MONGO_URI
-        value: mongodb+srv://intern:<db_password>@chatbotdb.mrfwk3h.mongodb.net/?retryWrites=true&w=majority&appName=ChatbotDB
+        value: mongodb+srv://intern:p8IHZyhgpAvqRCBX@chatbotdb.mrfwk3h.mongodb.net/?retryWrites=true&w=majority&appName=ChatbotDB
       - key: MONGO_DB
         value: chatbotdb
       - key: MAX_HISTORY_MESSAGES
