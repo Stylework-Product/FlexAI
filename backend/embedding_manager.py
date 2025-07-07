@@ -123,4 +123,4 @@ def load_vectorstore_from_db(embedding_name: str = EMBEDDING_NAME) -> FAISS:
     return vectorstore
 
 #build_and_store_embeddings(file_id, EMBEDDING_NAME)
-load_vectorstore_from_db(EMBEDDING_NAME)
+#load_vectorstore_from_db(EMBEDDING_NAME)
