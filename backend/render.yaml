@@ -12,7 +12,7 @@ services:
       - key: GEMINI_API_KEY
         value: AIzaSyB93mrPVEi8hyA8F03qfDSz21bU2fBEatA
       - key: MONGO_URI
-        value: mongodb+srv://intern:p8IHZyhgpAvqRCBX@chatbotdb.mrfwk3h.mongodb.net/
+        value: mongodb+srv://intern:p8IHZyhgpAvqRCBX@chatbotdb.mrfwk3h.mongodb.net/chatbotdb?retryWrites=true&w=majority
       - key: MONGO_DB
         value: chatbotdb
       - key: MAX_HISTORY_MESSAGES
@@ -33,5 +33,3 @@ services:
         value: 1AU6IsvaTs8f66YxntcDtmeWp0svlsowy
       - key: folder_id
         value: 159IIuPpsDkQ7Kc-R3QMNMXcz3L4ljWNi
-      - key: GOOGLE_DRIVE_API
-        value: service_account.json
