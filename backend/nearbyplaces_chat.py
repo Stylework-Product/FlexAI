@@ -7,24 +7,15 @@ from dotenv import load_dotenv
 from google import generativeai
 import google.generativeai as genai
 from google.generativeai import types
-from fastapi import FastAPI, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 
+router = APIRouter()
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 genai.configure(api_key=GEMINI_API_KEY)
-
-app = FastAPI(title="FlexAI", description="An AI-assistant for workspace booking")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 NEARBY_PLACES_PROMPT = """
 You are a helpful assistant that helps users find workspaces based on nearby places like cafes, restaurants, metro stations etc.
@@ -70,7 +61,7 @@ async def parse_nearby_workspace(query: str, place_type: str, df_filtered: List[
         print(f"Error parsing nearby query: {str(e)}")
         return []
 
-@app.post("/api/nearbyplaces_chat")
+@router.post("/api/nearbyplaces_chat")
 async def nearbyplaces_chat(
     user_message: str = Body(..., embed=True),
     df_filtered: List[Dict] = Body(..., embed=True),

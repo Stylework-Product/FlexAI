@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List, Dict, Any
 import os
@@ -12,15 +12,7 @@ from connection_app import load_embeddings
 from utils import print_text_animated, get_session
 from connection import ChatSession, create_new_session, get_existing_session
 
-app = FastAPI(title="FlexAI", description="An AI-assistant for workspace booking")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+router = APIRouter()
 
 load_dotenv()
 
@@ -43,7 +35,7 @@ GENERAL_PROMPT = """
     User message: {message}
     """
 
-@app.post("/general_chat")
+@router.post("/general_chat")
 async def general_chat(
     user_message: str = Body(..., embed=True),
     chat_history: list = Body([], embed=True),
