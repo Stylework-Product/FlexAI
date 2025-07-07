@@ -35,7 +35,7 @@ async def parse_nearby_workspace(query: str, place_type: str, df_filtered: List[
     """Parse the workspaces about nearby places using Gemini."""
     try:
         # Initialize Gemini model
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
         
         # Create the prompt
         prompt = f"""{NEARBY_PLACES_PROMPT}

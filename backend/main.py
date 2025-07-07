@@ -99,7 +99,7 @@ GEMINI_ROUTER_PROMPT = """
 
 def classify_intent_with_gemini(user_message: str) -> str:
     try:
-        router_model = genai.GenerativeModel("gemini-1.5-flash")
+        router_model = genai.GenerativeModel("gemini-2.0-flash")
         prompt = GEMINI_ROUTER_PROMPT.format(message=user_message.strip())
         response = router_model.generate_content(prompt)
         intent = response.text.strip().lower()

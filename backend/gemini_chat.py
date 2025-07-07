@@ -382,7 +382,7 @@ async def gemini_chat(
     filtered_history = [msg for msg in chat_history if msg.get("sender") == "user"]
 
     try:
-        gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+        gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 
         # Build Gemini SDK-compatible chat history
         chat_sdk_history = [
