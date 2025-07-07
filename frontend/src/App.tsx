@@ -3,6 +3,11 @@ import UserInfoForm from './components/UserInfoForm';
 import ChatInterface from './components/ChatInterface';
 import { AppState, UserInfo, Chat, ChatMessage } from './types';
 
+interface ImportMetaEnv {
+  readonly VITE_API_URL: string;
+  // add other env variables here if needed
+}
+
 function App() {
   const [state, setState] = useState<AppState>({
     step: 'user-info',
@@ -43,8 +48,9 @@ function App() {
   });
 
   const handleUserInfoSubmit = async (userInfo: UserInfo) => {
+    const API_BASE = import.meta.env.VITE_API_URL;
     try {
-      const res = await fetch('http://127.0.0.1:8000/session', {
+      const res = await fetch(`${API_BASE}/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ user_info: userInfo }),
