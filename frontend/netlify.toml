@@ -1,21 +1,8 @@
 [build]
-  command = "npm run build"
+  command = "CI = npm run build"
   publish = "dist"
 
 [[redirects]]
-  from = "/multimodal_agent"
-  to = "https://flexai-7hd4.onrender.com/multimodal_agent"
-  status = 200
-  force = true
-
-[[redirects]]
-  from = "/sessions"
-  to = "https://flexai-7hd4.onrender.com/sessions"
-  status = 200
-  force = true
-
-# Optional: Handle React SPA fallback
-[[redirects]]
-  from = "/*"
+  from = "/*" 
   to = "/index.html"
   status = 200

@@ -3,9 +3,14 @@ import UserInfoForm from './components/UserInfoForm';
 import ChatInterface from './components/ChatInterface';
 import { AppState, UserInfo, Chat, ChatMessage } from './types';
 
+// Add this declaration to fix the import.meta.env error
 interface ImportMetaEnv {
   readonly VITE_API_URL: string;
   // add other env variables here if needed
+}
+
+interface ImportMeta {
+  readonly env: ImportMetaEnv;
 }
 
 function App() {
