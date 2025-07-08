@@ -17,7 +17,6 @@ from fastapi import APIRouter, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from utils import fetch_sheet_as_df, get_session, print_text_animated
 from connection import ChatSession, create_new_session, get_existing_session
-from embedding_manager import load_vectorstore_from_db
 
 router = APIRouter()
 
@@ -26,8 +25,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 EMBEDDING_NAME = "embeddings"
 
 genai.configure(api_key=GEMINI_API_KEY)
-
-load_vectorstore_from_db(EMBEDDING_NAME)
 
 # Gemini set up for pdf document answering
 INITIAL_PROMPT = (
