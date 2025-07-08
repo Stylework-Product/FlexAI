@@ -25,3 +25,6 @@ dist-ssr
 .venv4
 .venv3
 .bolt
+
+# Local Netlify folder
+.netlify
