@@ -9,12 +9,11 @@ import google.generativeai as genai
 
 load_dotenv()
 
-
-MONGO_URI = os.getenv("MONGO_URI")  
+MONGO_URI = "mongodb+srv://intern:p8IHZyhgpAvqRCBX@chatbotdb.mrfwk3h.mongodb.net/?retryWrites=true&w=majority&appName=ChatbotDB"
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 #MONGO_DB = os.getenv("MONGO_DB")
-MONGO_DB = "pdf_chatbot"
+MONGO_DB = "chatbotdb"
 
 # Log the values for debugging
 print(f"[DEBUG] MONGO_URI: {MONGO_URI}")
