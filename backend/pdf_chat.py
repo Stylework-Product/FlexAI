@@ -13,10 +13,12 @@ import pickle
 from google import generativeai
 import google.generativeai as genai
 from google.generativeai import types
-from fastapi import FastAPI, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from utils import fetch_sheet_as_df, get_session, print_text_animated
 from connection import ChatSession, create_new_session, get_existing_session
+
+router = APIRouter()
 
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -24,15 +26,6 @@ EMBEDDING_NAME = "embeddings"
 
 genai.configure(api_key=GEMINI_API_KEY)
 
-app = FastAPI(title="FlexAI", description="An AI-assistant for workspace booking")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 # Gemini set up for pdf document answering
 INITIAL_PROMPT = (
     "You are an expert FlexAI assistant in helping user answer questions based on the document."
@@ -50,7 +43,7 @@ INITIAL_PROMPT = (
 )
  
 class GeminiLLM(LLM):
-    model: str = "models/gemini-1.5-flash"
+    model: str = "models/gemini-2.0-flash"
     initial_prompt: str = INITIAL_PROMPT
     
     def _call(self, prompt: str, stop: Optional[List[str]] = None) -> str:
@@ -86,7 +79,7 @@ def handle_userinput(user_question, conversation, chat_history):
     bot_msg = response.get("answer", "You can contact the operation team regarding this query at operations@stylework.city!")
     return bot_msg
 
-@app.post("/pdf_chat")
+@router.post("/pdf_chat")
 async def pdf_chat(
     user_message: str = Body(..., embed=True),
     chat_history: list = Body([], embed=True),

@@ -2,8 +2,34 @@ services:
   - type: web
     name: fastapi-backend
     runtime: python
-    buildCommand: ""
-    startCommand: python main.py
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: PORT
-        value: 8000
+      - key: SUPABASE_URL
+        value: https://tjmimacmfkoavszmcvgn.supabase.co
+      - key: SUPABASE_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRqbWltYWNtZmtvYXZzem1jdmduIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NTMxMjI0NCwiZXhwIjoyMDYwODg4MjQ0fQ.VSNGROsfdRSo3hrw4jp1G_jRhVkr7cZCEXsPvKvJYpM
+      - key: GEMINI_API_KEY
+        value: AIzaSyB93mrPVEi8hyA8F03qfDSz21bU2fBEatA
+      - key: MONGO_URI
+        value: mongodb+srv://intern:p8IHZyhgpAvqRCBX@chatbotdb.mrfwk3h.mongodb.net/?retryWrites=true&w=majority&appName=ChatbotDB
+      - key: MONGO_DB
+        value: chatbotdb
+      - key: MAX_HISTORY_MESSAGES
+        value: 100
+      - key: MIN_SIMILARITY_SCORE
+        value: 70
+      - key: NO_OF_SPACES
+        value: 25
+      - key: SHEET_API_KEY
+        value: AIzaSyCwb8j5BCbTHx97lqAmyXPb3SkQ
+      - key: SHEET_ID
+        value: 1B-VSURiTXC1KHE_TE1PzaFjcNcko2NikUVcADExJdYU
+      - key: SHEET_NAME
+        value: final_dataset
+      - key: GOOGLE_DRIVE_API
+        value: service_account.json
+      - key: file_id
+        value: 1AU6IsvaTs8f66YxntcDtmeWp0svlsowy
+      - key: folder_id
+        value: 159IIuPpsDkQ7Kc-R3QMNMXcz3L4ljWNi

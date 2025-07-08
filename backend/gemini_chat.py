@@ -11,24 +11,17 @@ from dotenv import load_dotenv
 from google import generativeai
 import google.generativeai as genai
 from google.generativeai import types
-from fastapi import FastAPI, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from utils import fetch_sheet_as_df, print_text_animated, get_session
 from embedding_manager import EMBEDDING_NAME, folder_id
 from nearbyplaces_chat import nearbyplaces_chat
 from connection import ChatSession, create_new_session, get_existing_session
 
+router = APIRouter()
+
 load_dotenv()
 
-app = FastAPI(title="FlexAI", description="An AI-assistant for workspace booking")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 # format for user input
 class UserInput(BaseModel):
     workspaceName: Optional[str] = ''
@@ -297,7 +290,7 @@ def format_workspace_recommendations(result: List[Dict[str, Any]]) -> str:
     return recommendations_text
 
 # setup for the recommendation gemini model
-@app.post("/gemini_chat")
+@router.post("/gemini_chat")
 async def gemini_chat(
     user_message: str = Body(..., embed=True),
     chat_history: list = Body([], embed=True),
@@ -389,7 +382,7 @@ async def gemini_chat(
     filtered_history = [msg for msg in chat_history if msg.get("sender") == "user"]
 
     try:
-        gemini_model = genai.GenerativeModel("gemini-1.5-flash")
+        gemini_model = genai.GenerativeModel("gemini-2.0-flash")
 
         # Build Gemini SDK-compatible chat history
         chat_sdk_history = [

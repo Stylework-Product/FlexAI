@@ -23,7 +23,7 @@ app = FastAPI(title="FlexAI", description="An AI-assistant for workspace booking
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5174"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -99,7 +99,7 @@ GEMINI_ROUTER_PROMPT = """
 
 def classify_intent_with_gemini(user_message: str) -> str:
     try:
-        router_model = genai.GenerativeModel("gemini-1.5-flash")
+        router_model = genai.GenerativeModel("gemini-2.0-flash")
         prompt = GEMINI_ROUTER_PROMPT.format(message=user_message.strip())
         response = router_model.generate_content(prompt)
         intent = response.text.strip().lower()
@@ -126,7 +126,3 @@ async def multimodal_agent_router(
         return await gemini_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
     else:
         return await general_chat(user_message=user_message, chat_history=chat_history, session_id=session_id, user_id=user_id)
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 8000))  # Render sets this
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
