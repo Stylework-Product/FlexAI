@@ -6,3 +6,9 @@
   from = "/*" 
   to = "/index.html"
   status = 200
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://flexai-7hd4.onrender.com/:splat"
+  status = 200
+  force = true
