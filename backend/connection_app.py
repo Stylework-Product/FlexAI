@@ -6,13 +6,19 @@ from typing import List
 from langchain_community.vectorstores import FAISS
 from langchain.docstore.document import Document
 import google.generativeai as genai
+
 load_dotenv()
+
 
 MONGO_URI = os.getenv("MONGO_URI")  
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 genai.configure(api_key=GEMINI_API_KEY)
 #MONGO_DB = os.getenv("MONGO_DB")
 MONGO_DB = "pdf_chatbot"
+
+# Log the values for debugging
+print(f"[DEBUG] MONGO_URI: {MONGO_URI}")
+print(f"[DEBUG] MONGO_DB: {MONGO_DB}")
 
 client = MongoClient(MONGO_URI)
 db = client[MONGO_DB]
@@ -26,6 +32,8 @@ def store_embeddings(name: str, data: bytes):
 
 def load_embeddings(name: str) -> bytes:
     file = fs.find_one({"filename": name})
+    print(f"Database name: {db.name}")
+    print(f"Files in GridFS: {[file.filename for file in fs.find()]}")
     print(f"Loading embeddings from GridFS with name: {name}")
     file = fs.find_one({"filename": name})
     print(f"File found: {file is not None}")
